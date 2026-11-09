@@ -19,8 +19,8 @@ optional final phase.
 | 1 | Ingestion and Bronze | Done |
 | 2 | Silver and Gold with DuckDB + dbt, data quality, first SRS | Done |
 | 3 | Airflow, CI/CD, single-command environment | Done |
-| 4 | Scale to a national grid, PySpark vs DuckDB benchmark | Next |
-| 5 | ML with MLflow, SRS validation, dashboard, docs | Planned |
+| 4 | Scale to a national grid, PySpark vs DuckDB benchmark | Done |
+| 5 | ML with MLflow, SRS validation, dashboard, docs | Next |
 | 6 | Databricks Free Edition port (optional) | Planned |
 
 ## Quickstart
@@ -47,23 +47,30 @@ make test      # unit and end-to-end tests (no network or Docker needed)
 docs with the lineage graph. No Docker? Set `SOLARPULSE_STORAGE_BACKEND=local` in `.env`
 and everything writes to `data/lake/`; `make sample` fills it with synthetic data.
 
-## First results
+## Results
 
-Full history 2011–2026, 5 cities, 694,200 valid hours, 0 quarantined.
+Full history 2011–2026, 10 cities, 1,388,400 valid hours, 0 quarantined.
 
-| SRS rank | Location | SRS | Mean daily GHI (kWh/m²) | Radiation rank |
-| --- | --- | --- | --- | --- |
-| 1 | Barranquilla | 79.2 | 5.69 | 1 |
-| 2 | Riohacha (La Guajira) | 79.1 | 5.58 | 2 |
-| 3 | Medellín | 51.4 | 5.25 | 3 |
-| 4 | Bogotá | 47.0 | 4.61 | 4 |
-| 5 | Cali | 23.4 | 4.28 | 5 |
+| SRS rank | Location | Region | SRS | Mean daily GHI (kWh/m²) | Radiation rank |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Barranquilla | Caribbean | 80.0 | 5.69 | 1 |
+| 2 | Riohacha (La Guajira) | Caribbean | 79.9 | 5.58 | 2 |
+| 3 | Santa Marta | Caribbean | 73.7 | 5.33 | 4 |
+| 4 | Cartagena | Caribbean | 70.2 | 5.48 | 3 |
+| 5 | Cúcuta | Andean | 66.4 | 5.20 | 6 |
+| 6 | Medellín | Andean | 52.6 | 5.25 | 5 |
+| 7 | Bogotá | Andean | 46.8 | 4.61 | 8 |
+| 8 | Villavicencio | Orinoquia | 33.8 | 4.95 | 7 |
+| 9 | Bucaramanga | Andean | 33.6 | 4.53 | 9 |
+| 10 | Cali | Andean | 23.2 | 4.28 | 10 |
 
-With 5 cities, the SRS ranking matches the ranking by mean radiation for the full
-history, but not every year: in 2011–2013 and 2022 Bogotá beats Medellín on SRS, and
-Barranquilla and La Guajira swap first place from year to year. The Caribbean pair are
-virtually tied: La Guajira has fewer low-radiation days and less day-to-day
-variability, Barranquilla slightly more energy. See [docs/methodology.md](docs/methodology.md).
+**Is the city with the most radiation also the most stable?** At the top, yes:
+Barranquilla leads both rankings, virtually tied with La Guajira (fewer low-radiation
+days, less day-to-day variability). Further down, stability reorders the list: Santa
+Marta overtakes Cartagena thanks to lower variability and seasonality, Cúcuta overtakes
+Medellín (the least seasonal city of the ten), and Bogotá overtakes Villavicencio, whose
+rainy season produces the second-highest share of low-radiation days. See
+[docs/methodology.md](docs/methodology.md).
 
 ## Phase 2: Silver, Gold and data quality
 
@@ -158,6 +165,51 @@ every DAG against Airflow 3.3.2, and `docker compose config`.
 (partitions and rows written, dbt node statuses and per-model seconds, failed
 expectations, rows quarantined per rule) in the lake under
 `observability/runs/step=<step>/`, keyed by the Airflow run ID.
+
+## Phase 4: scale and benchmark
+
+**All 10 cities** are now ingested (1.39 M hourly rows).
+
+**National grid.** [src/ingestion/grid.py](src/ingestion/grid.py) builds a regular grid
+over a simplified outline of mainland Colombia: 94 points at 1°, 370 at 0.5° and 1,488 at
+0.25°. `--grid 0.25` ingests it into a separate Bronze table, and `--max-partitions N`
+caps each run so the load fits the API quota and continues the next day:
+
+| Grid | Points | Partitions (16 years) | Approx. API calls* | Days at 10,000 calls/day |
+| --- | --- | --- | --- | --- |
+| 1° | 94 | 1,504 | ~39,000 | ~4 |
+| 0.25° | 1,488 | 23,808 | ~620,000 | ~62 |
+
+\*Open-Meteo counts a request for more than 2 weeks of data as several calls; one year
+for one location is about 26. `make grid-plan GRID=1.0` prints the plan.
+
+**Benchmark.** Downloading the 0.25° grid takes about two months of free quota, so the
+benchmark ([benchmarks/](benchmarks/)) uses synthetic data at real volume and with the Silver schema: 15 years
+for up to 1,000 grid points (131 M rows). Each engine runs the same three SQL queries
+(monthly aggregation, SRS-style ranking, hourly scan) in a fresh process; peak memory
+covers the whole process tree, including Spark's JVM.
+
+| Grid points | Rows | Parquet | Engine | Startup (s) | Monthly agg. (s) | SRS ranking (s) | Hourly scan (s) | Peak memory |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 10 | 1.3 M | 0.02 GB | DuckDB | 0.0 | 0.01 | 0.01 | 0.01 | 149 MB |
+| 10 | 1.3 M | 0.02 GB | PySpark | 6.1 | 0.45 | 0.49 | 0.18 | 1,016 MB |
+| 100 | 13.1 M | 0.24 GB | DuckDB | 0.0 | 0.09 | 0.09 | 0.07 | 303 MB |
+| 100 | 13.1 M | 0.24 GB | PySpark | 5.9 | 2.36 | 1.51 | 0.48 | 1,811 MB |
+| 500 | 65.7 M | 1.22 GB | DuckDB | 0.0 | 0.72 | 0.60 | 0.32 | 678 MB |
+| 500 | 65.7 M | 1.22 GB | PySpark | 6.2 | 7.07 | 5.15 | 1.20 | 2,798 MB |
+| 1,000 | 131.5 M | 2.44 GB | DuckDB | 0.0 | 1.63 | 1.66 | 0.72 | 1,181 MB |
+| 1,000 | 131.5 M | 2.44 GB | PySpark | 8.8 | 16.06 | 7.19 | 2.52 | 3,570 MB |
+
+Apple M-series, 10 CPUs, 16 GB RAM; median of 3 runs. PySpark 4.2 in `local[*]` mode
+with 20 shuffle partitions; DuckDB with default settings.
+
+**When does one machine stop being enough?** Not within this project. DuckDB is 3.5–45×
+faster and uses a third of the memory or less at every size, and its memory grows far more
+slowly than the data. The full 0.25° grid (~196 M rows, ~3.6 GB of Parquet) is only 1.5×
+the largest size tested. Spark earns its overhead when data no longer fits one machine's
+disk, when it already lives in a cluster, or when many jobs must run in parallel, none of
+which applies here. That is why the pipeline uses DuckDB and keeps Spark for the benchmark
+and the optional Databricks phase.
 
 ## Data source
 

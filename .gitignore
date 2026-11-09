@@ -17,3 +17,4 @@ mlruns/
 reports/
 logs/
 dbt/.user.yml
+benchmarks/data/

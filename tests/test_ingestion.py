@@ -80,7 +80,8 @@ def test_config_files_are_valid():
     assert len(locations) == 10
     assert len({loc.location_id for loc in locations}) == 10
     active = settings["ingestion"]["active_locations"]
-    assert len(load_locations(only=active)) == len(active)
+    # an empty list means every location
+    assert len(load_locations(only=active)) == (len(active) or len(locations))
 
 
 def test_unknown_location_is_rejected():
@@ -221,3 +222,29 @@ def test_backoff_grows_and_respects_cap_and_retry_after():
     assert 8 <= compute_delay(4, base=2, cap=60) <= 16
     assert compute_delay(20, base=2, cap=60) <= 60
     assert compute_delay(1, base=2, cap=60, retry_after=30) == 30
+
+
+# --- National grid and quota batching ---------------------------------------------
+
+
+def test_grid_covers_colombia_and_excludes_neighbors():
+    from src.ingestion.grid import COLOMBIA_OUTLINE, grid_points, point_in_polygon
+
+    # mainland Colombia is ~1.14 million km²; a 0.25° cell is ~770 km²
+    assert 1300 < len(grid_points(0.25)) < 1700
+    assert all(
+        point_in_polygon(loc.longitude, loc.latitude, COLOMBIA_OUTLINE)
+        for loc in load_locations()
+    )
+    for lat, lon in [(10.48, -66.90), (-0.18, -78.47), (8.98, -79.52), (10.65, -71.64)]:
+        assert not point_in_polygon(lon, lat, COLOMBIA_OUTLINE)  # Caracas, Quito, Panama, Maracaibo
+
+
+def test_max_partitions_loads_in_batches(lake):
+    locations = [LOC, LOC2]
+    m1 = run_ingestion(lake, FakeClient(), locations, date(2020, 1, 1), date(2021, 12, 31),
+                       max_partitions=3)
+    assert (m1.planned, m1.written) == (3, 3)
+    m2 = run_ingestion(lake, FakeClient(), locations, date(2020, 1, 1), date(2021, 12, 31),
+                       max_partitions=3)
+    assert (m2.planned, m2.written) == (1, 1)

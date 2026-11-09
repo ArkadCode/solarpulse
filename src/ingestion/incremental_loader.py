@@ -23,12 +23,16 @@ from src.common.run_metrics import tracked_run
 from src.common.storage import Lake
 from src.ingestion.api_client import OpenMeteoClient
 from src.ingestion.extractor import (
+    BRONZE_TABLE,
     LOCATIONS_TABLE,
     locations_to_table,
     partition_path,
     response_to_table,
 )
+from src.ingestion.grid import grid_locations
 from src.ingestion.synthetic import SyntheticClient
+
+GRID_TABLE = "bronze/raw_openmeteo_grid"
 
 log = get_logger("incremental_loader")
 
@@ -70,6 +74,7 @@ def plan_periods(
     history_start: date,
     end_date: date,
     backfill_years: set[int] | None = None,
+    table: str = BRONZE_TABLE,
 ) -> list[Period]:
     """Partitions to fetch.
 
@@ -86,7 +91,7 @@ def plan_periods(
             if window is None:
                 continue
             start, end = window
-            path = partition_path(loc.location_id, year)
+            path = partition_path(loc.location_id, year, table)
 
             if year in backfill_years:
                 reason = "backfill"
@@ -111,14 +116,25 @@ def run_ingestion(
     end_date: date,
     backfill_years: set[int] | None = None,
     dry_run: bool = False,
+    table: str = BRONZE_TABLE,
+    max_partitions: int | None = None,
 ) -> RunMetrics:
+    """Fetches the planned partitions. `max_partitions` caps one run so a large grid is
+    loaded in batches that fit the API's daily quota; the next run continues."""
     t0 = time.monotonic()
     by_id = {loc.location_id: loc for loc in locations}
-    periods = plan_periods(lake, locations, history_start, end_date, backfill_years)
+    pending = plan_periods(lake, locations, history_start, end_date, backfill_years, table)
+    periods = pending[:max_partitions] if max_partitions else pending
     metrics = RunMetrics(planned=len(periods))
     log.info(
         "plan_ready",
-        extra={"periods": len(periods), "dry_run": dry_run, "end_date": end_date.isoformat()},
+        extra={
+            "periods": len(periods),
+            "pending_total": len(pending),
+            "dry_run": dry_run,
+            "end_date": end_date.isoformat(),
+            "table": table,
+        },
     )
 
     for p in periods:
@@ -126,23 +142,23 @@ def run_ingestion(
             log.info("would_fetch", extra=asdict(p))
             continue
         loc = by_id[p.location_id]
-        rel = partition_path(p.location_id, p.year)
+        rel = partition_path(p.location_id, p.year, table)
         try:
             response, params = client.fetch_hourly(
                 loc.latitude, loc.longitude, p.start_date, p.end_date
             )
-            table = response_to_table(
+            batch = response_to_table(
                 response, params, loc, p.start_date, p.end_date, source_file=lake.path(rel)
             )
-            lake.write_parquet(rel, table)
+            lake.write_parquet(rel, batch)
         except Exception as exc:  # one failed partition does not stop the others
             metrics.failed += 1
             metrics.failures.append(f"{p.location_id}/{p.year}: {exc}")
             log.error("partition_failed", extra={**asdict(p), "error": str(exc)})
             continue
         metrics.written += 1
-        metrics.rows_written += table.num_rows
-        log.info("partition_written", extra={**asdict(p), "rows": table.num_rows, "path": rel})
+        metrics.rows_written += batch.num_rows
+        log.info("partition_written", extra={**asdict(p), "rows": batch.num_rows, "path": rel})
 
     metrics.duration_s = round(time.monotonic() - t0, 2)
     log.info("run_finished", extra=asdict(metrics))
@@ -158,12 +174,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--end-date", type=date.fromisoformat, help="End date (default: today-lag)")
     parser.add_argument("--dry-run", action="store_true", help="Only print the plan")
     parser.add_argument("--synthetic", action="store_true", help="Use synthetic data, no API calls")
+    parser.add_argument(
+        "--grid", type=float, metavar="DEG", help="Ingest a national grid at this resolution"
+    )
+    parser.add_argument(
+        "--max-partitions", type=int, help="Cap partitions per run (API quota batching)"
+    )
     args = parser.parse_args(argv)
 
     settings = load_settings()
     ing = settings["ingestion"]
     only = None if args.all_locations else (args.locations or ing.get("active_locations") or None)
-    locations = load_locations(only=only)
+    locations = grid_locations(args.grid) if args.grid else load_locations(only=only)
+    table = GRID_TABLE if args.grid else BRONZE_TABLE
+    max_partitions = args.max_partitions or ing.get("max_partitions_per_run")
     history_start = args.start_date or date.fromisoformat(ing["history_start_date"])
     end_date = args.end_date or date.today() - timedelta(days=ing.get("end_date_lag_days", 7))
 
@@ -173,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.synthetic
         else OpenMeteoClient(settings["api"], settings["retry"])
     )
-    if not args.dry_run:
+    if not args.dry_run and not args.grid:
         # Reference data always lists every configured location, not just this run's subset.
         lake.write_parquet(f"{LOCATIONS_TABLE}/data.parquet", locations_to_table(load_locations()))
 
@@ -186,8 +210,11 @@ def main(argv: list[str] | None = None) -> int:
             end_date=end_date,
             backfill_years=set(args.backfill),
             dry_run=args.dry_run,
+            table=table,
+            max_partitions=max_partitions,
         )
         run.update(
+            table=table,
             partitions_planned=metrics.planned,
             partitions_written=metrics.written,
             partitions_failed=metrics.failed,

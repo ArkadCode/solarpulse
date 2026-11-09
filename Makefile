@@ -2,7 +2,7 @@ PYTHON ?= python3.10
 VENV   := .venv
 BIN    := $(VENV)/bin
 
-.PHONY: help install up down trigger backfill test lint plan ingest ingest-local sample inspect transform quality publish pipeline docs clean
+.PHONY: help install up down trigger backfill grid-plan benchmark test lint plan ingest ingest-local sample inspect transform quality publish pipeline docs clean
 
 help:
 	@echo "install       create the virtualenv and install dependencies"
@@ -19,6 +19,8 @@ help:
 	@echo "publish       copy Silver and Gold from DuckDB to the lake as Parquet"
 	@echo "pipeline      ingest -> transform -> quality -> publish"
 	@echo "docs          generate and serve dbt docs with the lineage graph"
+	@echo "grid-plan     how many partitions a national grid needs (GRID=0.25)"
+	@echo "benchmark     PySpark local vs DuckDB at 10-1000 grid points (needs Java 17+)"
 	@echo "test / lint   run pytest and ruff"
 
 $(BIN)/activate: requirements.txt
@@ -73,6 +75,15 @@ pipeline: ingest transform quality publish
 docs: install
 	$(BIN)/python -m src.transform.dbt_runner docs generate
 	$(BIN)/python -m src.transform.dbt_runner docs serve --port 8081
+
+GRID ?= 0.25
+grid-plan: install
+	$(BIN)/python -m src.ingestion.incremental_loader --grid $(GRID) --dry-run | grep plan_ready
+
+benchmark: install
+	$(BIN)/pip install -q -r benchmarks/requirements.txt
+	$(BIN)/python -m benchmarks.generate_data --locations 1000
+	$(BIN)/python -m benchmarks.run_benchmark --sizes 10 100 500 1000
 
 test: install
 	$(BIN)/pytest -q

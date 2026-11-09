@@ -1,0 +1,189 @@
+{
+  "machine": "arm64, 10 CPUs, 16 GB RAM, Darwin",
+  "results": [
+    {
+      "engine": "duckdb",
+      "locations": 10,
+      "startup_s": 0.016,
+      "queries": {
+        "monthly_aggregation": {
+          "first_s": 0.033,
+          "median_s": 0.015
+        },
+        "srs_ranking": {
+          "first_s": 0.021,
+          "median_s": 0.013
+        },
+        "hourly_profile_scan": {
+          "first_s": 0.009,
+          "median_s": 0.006
+        }
+      },
+      "rows": 1314960,
+      "data_gb": 0.024,
+      "peak_memory_mb": 149,
+      "wall_s": 0.55
+    },
+    {
+      "engine": "spark",
+      "locations": 10,
+      "startup_s": 6.086,
+      "queries": {
+        "monthly_aggregation": {
+          "first_s": 2.864,
+          "median_s": 0.448
+        },
+        "srs_ranking": {
+          "first_s": 1.43,
+          "median_s": 0.492
+        },
+        "hourly_profile_scan": {
+          "first_s": 0.439,
+          "median_s": 0.183
+        }
+      },
+      "rows": 1314960,
+      "data_gb": 0.024,
+      "peak_memory_mb": 1016,
+      "wall_s": 13.74
+    },
+    {
+      "engine": "duckdb",
+      "locations": 100,
+      "startup_s": 0.014,
+      "queries": {
+        "monthly_aggregation": {
+          "first_s": 0.12,
+          "median_s": 0.094
+        },
+        "srs_ranking": {
+          "first_s": 0.083,
+          "median_s": 0.087
+        },
+        "hourly_profile_scan": {
+          "first_s": 0.067,
+          "median_s": 0.067
+        }
+      },
+      "rows": 13149600,
+      "data_gb": 0.244,
+      "peak_memory_mb": 303,
+      "wall_s": 1.22
+    },
+    {
+      "engine": "spark",
+      "locations": 100,
+      "startup_s": 5.862,
+      "queries": {
+        "monthly_aggregation": {
+          "first_s": 5.814,
+          "median_s": 2.362
+        },
+        "srs_ranking": {
+          "first_s": 3.047,
+          "median_s": 1.513
+        },
+        "hourly_profile_scan": {
+          "first_s": 0.791,
+          "median_s": 0.479
+        }
+      },
+      "rows": 13149600,
+      "data_gb": 0.244,
+      "peak_memory_mb": 1811,
+      "wall_s": 23.75
+    },
+    {
+      "engine": "duckdb",
+      "locations": 500,
+      "startup_s": 0.015,
+      "queries": {
+        "monthly_aggregation": {
+          "first_s": 0.545,
+          "median_s": 0.716
+        },
+        "srs_ranking": {
+          "first_s": 0.602,
+          "median_s": 0.602
+        },
+        "hourly_profile_scan": {
+          "first_s": 0.324,
+          "median_s": 0.324
+        }
+      },
+      "rows": 65748000,
+      "data_gb": 1.22,
+      "peak_memory_mb": 678,
+      "wall_s": 5.22
+    },
+    {
+      "engine": "spark",
+      "locations": 500,
+      "startup_s": 6.233,
+      "queries": {
+        "monthly_aggregation": {
+          "first_s": 18.055,
+          "median_s": 7.074
+        },
+        "srs_ranking": {
+          "first_s": 5.414,
+          "median_s": 5.149
+        },
+        "hourly_profile_scan": {
+          "first_s": 1.596,
+          "median_s": 1.198
+        }
+      },
+      "rows": 65748000,
+      "data_gb": 1.22,
+      "peak_memory_mb": 2798,
+      "wall_s": 57.56
+    },
+    {
+      "engine": "duckdb",
+      "locations": 1000,
+      "startup_s": 0.016,
+      "queries": {
+        "monthly_aggregation": {
+          "first_s": 1.052,
+          "median_s": 1.627
+        },
+        "srs_ranking": {
+          "first_s": 1.717,
+          "median_s": 1.664
+        },
+        "hourly_profile_scan": {
+          "first_s": 0.795,
+          "median_s": 0.725
+        }
+      },
+      "rows": 131496000,
+      "data_gb": 2.44,
+      "peak_memory_mb": 1181,
+      "wall_s": 13.09
+    },
+    {
+      "engine": "spark",
+      "locations": 1000,
+      "startup_s": 8.757,
+      "queries": {
+        "monthly_aggregation": {
+          "first_s": 22.54,
+          "median_s": 16.06
+        },
+        "srs_ranking": {
+          "first_s": 8.428,
+          "median_s": 7.192
+        },
+        "hourly_profile_scan": {
+          "first_s": 2.857,
+          "median_s": 2.516
+        }
+      },
+      "rows": 131496000,
+      "data_gb": 2.44,
+      "peak_memory_mb": 3570,
+      "wall_s": 94.79
+    }
+  ]
+}

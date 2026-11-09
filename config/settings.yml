@@ -24,13 +24,13 @@ ingestion:
   history_start_date: "2011-01-01"
   # The historical archive is published with a delay of a few days.
   end_date_lag_days: 7
-  # Phase 1: 5 cities. Leave the list empty to use every location in locations.yml.
-  active_locations:
-    - la_guajira
-    - barranquilla
-    - medellin
-    - bogota
-    - cali
+  # Empty list = every location in locations.yml (phase 4: all 10 cities).
+  # List IDs here to restrict ingestion to a subset.
+  active_locations: []
+  # Optional cap on partitions per run. Each partition is one location-year request,
+  # which Open-Meteo counts as ~26 calls (it weighs requests by days of data). Leave
+  # empty for no cap; the grid DAG/CLI can pass --max-partitions instead.
+  max_partitions_per_run:
 
 storage:
   # "s3" uses the local object store from docker compose. "local" writes to local_root, handy without Docker.
