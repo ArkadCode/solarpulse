@@ -1,97 +1,97 @@
 # SolarPulse
 
-A data platform that turns 15 years of hourly weather reanalysis from
+![Python](https://img.shields.io/badge/python-3.10%20%7C%203.12-3776AB)
+![dbt](https://img.shields.io/badge/dbt--core-1.11-FF694B)
+![DuckDB](https://img.shields.io/badge/DuckDB-1.5-FFF000)
+![Airflow](https://img.shields.io/badge/Airflow-3.3.2-017CEE)
+![Tests](https://img.shields.io/badge/tests-36%20pytest%20%2B%2044%20dbt-success)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
+SolarPulse turns 15 years of hourly weather reanalysis from
 [Open-Meteo](https://open-meteo.com/en/docs/historical-weather-api) into a **Solar
-Reliability Score (SRS)** for Colombian cities. Cities are ranked not only by mean solar
-radiation but also by variability, seasonality, how often low-radiation days occur and
-heat stress.
+Reliability Score (SRS)** for Colombian cities. It ranks cities not only by mean solar
+radiation but also by day-to-day variability, seasonality, how often low-radiation days
+occur and heat stress.
 
-It is built as a real system rather than a notebook: incremental ingestion, a Medallion
-lakehouse on an S3-compatible object store, dbt models with tests and quarantine,
-Great Expectations, Airflow orchestration with backfills, CI/CD, run metrics, an ML model
-tracked in MLflow, a PySpark vs DuckDB benchmark and a dashboard. Everything runs locally
-on free, open-source tools.
+It is a data engineering portfolio project built as a real system: incremental ingestion,
+a Medallion lakehouse on an S3-compatible object store, dbt models with tests and
+quarantine, Airflow orchestration with backfills, CI/CD, run metrics, an ML model tracked
+in MLflow and a dashboard. Everything runs locally on free, open-source tools.
 
-> The indicators compare solar *conditions*. They are not an estimate of electricity
-> production, which would require modeling panels, orientation and losses.
+**Results at a glance** (details in [docs/results.md](docs/results.md)):
 
-## Results
+- Barranquilla (SRS 80.0) and La Guajira (79.9) lead; Cali (23.2) is last. Below the top
+  two, stability reorders the cities compared with ranking by radiation alone.
+- The ranking is robust to the weights (mean Spearman 0.98 over 5,000 weight sets), and
+  ERA5 agrees with Global Solar Atlas about as well as two satellite products agree with
+  each other.
+- A next-day forecast beats the seasonal climatology by 22 % on unseen years.
+- On 131 M rows, DuckDB answers in under 2 s; PySpark in local mode takes 3.5–10× longer.
 
-Full history 2011–2026, 10 cities, 1,388,400 valid hourly rows, 0 quarantined.
+> The score compares solar *conditions*. It is not an estimate of electricity production,
+> which would require modeling panels, orientation and losses.
 
-| SRS rank | Location | Region | SRS | Mean daily GHI (kWh/m²) | Radiation rank |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Barranquilla | Caribbean | 80.0 | 5.69 | 1 |
-| 2 | Riohacha (La Guajira) | Caribbean | 79.9 | 5.58 | 2 |
-| 3 | Santa Marta | Caribbean | 73.7 | 5.33 | 4 |
-| 4 | Cartagena | Caribbean | 70.2 | 5.48 | 3 |
-| 5 | Cúcuta | Andean | 66.4 | 5.20 | 6 |
-| 6 | Medellín | Andean | 52.6 | 5.25 | 5 |
-| 7 | Bogotá | Andean | 46.8 | 4.61 | 8 |
-| 8 | Villavicencio | Orinoquia | 33.8 | 4.95 | 7 |
-| 9 | Bucaramanga | Andean | 33.6 | 4.53 | 9 |
-| 10 | Cali | Andean | 23.2 | 4.28 | 10 |
+## Technology Stack
 
-**Is the city with the most radiation also the most stable?** At the top, yes:
-Barranquilla leads both rankings, virtually tied with La Guajira (fewer low-radiation
-days, less day-to-day variability). Further down, stability reorders the list: Santa
-Marta overtakes Cartagena thanks to lower variability and seasonality, Cúcuta overtakes
-Medellín (the least seasonal city of the ten), and Bogotá overtakes Villavicencio, whose
-rainy season produces the second-highest share of low-radiation days.
-
-**How far can the score be trusted?**
-
-- **Weights:** across 5,000 random weight sets, the ranking keeps a mean Spearman
-  correlation of 0.98 with the baseline and no city moves more than 2 places when any
-  weight shifts by ±10 points. First place is a toss-up: Barranquilla 54 %, La Guajira 46 %.
-- **Data source:** the ERA5 ranking agrees with Global Solar Atlas (Spearman 0.82, mean
-  absolute error 5 %) about as well as NASA POWER and Global Solar Atlas agree with each
-  other (0.83). See [docs/methodology.md](docs/methodology.md#robustness-checks).
-
-**Next-day forecast:** a gradient-boosting model beats the seasonal climatology by 22 %
-(MSE skill) on 2024–2026, which the model never saw; "tomorrow = today" is 15 % *worse*
-than climatology.
-
-**Scale:** on 131 M rows (2.4 GB of Parquet), DuckDB answers the Gold queries in under
-2 s with 1.2 GB of memory; PySpark in local mode takes 3.5–10× longer with 3× the memory.
-One machine is enough for the whole national grid. See [Scale and benchmark](#scale-and-benchmark).
-
-## Architecture
-
-```
-                ┌──────────────────────────── Airflow 3 (orchestration) ────────────────────────────┐
-                │                                                                                    │
- Open-Meteo ──► ingestion ──► Bronze ──► dbt on DuckDB ──► Silver ──► Gold ──► quality ──► scoring ──► publish ──► lake Parquet ──► dashboard
-   API          (Python)      Parquet    incremental       fact,       daily,   GX + dbt   sensitivity            (S3-compatible)   (Streamlit)
-                retries,      on S3      per partition     quarantine, monthly, tests      + validation                  │
-                incremental                                dims        SRS,                                              ├──► ML forecast (MLflow)
-                                                                       anomalies                                        └──► PySpark / Databricks
-```
-
-| Component | Technology | Why |
+| Area | Technology | Version |
 | --- | --- | --- |
-| Ingestion | Python, `requests` | Retries, quota-aware batching, reproducible parameters |
-| Lake | RustFS (S3-compatible) in Docker | Same interface as S3; MinIO no longer ships images |
-| Format | Parquet with PyArrow | Columnar, compressed, partitioned |
-| Processing | DuckDB | Fast SQL on one machine, reads Parquet straight from S3 |
-| Transformation | dbt with dbt-duckdb | Versioned SQL, tests, lineage graph |
-| Data quality | dbt tests, Great Expectations, quarantine table | Ranges, nulls, duplicates, coverage |
-| Orchestration | Apache Airflow 3 | Asset-driven DAGs, retries, backfills, alerts |
-| ML | scikit-learn, MLflow | Tracked experiments, model registry |
-| Scale benchmark | PySpark 4 (local mode) | Measure when one machine stops being enough |
-| CI/CD | GitHub Actions | Lint, tests, dbt build, DAG import, image build |
-| Containers | Docker Compose | The whole environment with one command |
-| Dashboard | Streamlit, Altair | The visible layer |
+| Language | Python | 3.10 (host), 3.12 (containers) |
+| Ingestion | `requests`, PyArrow | requests 2.34, PyArrow 18.1 |
+| Lake | RustFS, S3-compatible object store | 1.0.3 |
+| Processing | DuckDB | 1.5.6 |
+| Transformation | dbt-core with dbt-duckdb | 1.11.17 / 1.11.1 |
+| Data quality | dbt tests, Great Expectations | GX 1.24.1 |
+| Orchestration | Apache Airflow (LocalExecutor, Postgres 16) | 3.3.2 |
+| ML | scikit-learn, MLflow tracking server and registry | 1.7.2 / 3.18.0 |
+| Benchmark | PySpark in local mode (Java 17+) | 4.2.1 |
+| Dashboard | Streamlit, Altair | 1.65.0 / 5.5.0 |
+| Containers | Docker Compose | Compose v2+ |
+| CI/CD | GitHub Actions | |
+| Tooling | pytest, ruff | 8.4 / 0.17 |
 
-Docs: [architecture](docs/architecture.md) · [data dictionary](docs/data_dictionary.md) ·
-[methodology](docs/methodology.md).
+Dependency ranges live in [requirements.txt](requirements.txt),
+[dashboard/requirements.txt](dashboard/requirements.txt) and
+[benchmarks/requirements.txt](benchmarks/requirements.txt). dbt-core is pinned below
+1.12 because 1.12 adds a dependency without prebuilt wheels, which breaks the Docker build.
 
-## Quickstart
+## Project Architecture
 
-Requirements: Docker and Python 3.10+ (Java 17+ only for the benchmark).
+```
+                ┌───────────────────────── Airflow 3 (orchestration) ─────────────────────────┐
+                │                                                                             │
+ Open-Meteo ──► ingestion ──► Bronze ──► dbt on DuckDB ──► Silver ──► Gold ──► quality ──► scoring ──► publish ──► lake Parquet
+   API          (Python)      Parquet    incremental       fact,       daily,   dbt tests  sensitivity            (S3-compatible)
+                retries,      on S3      per partition     quarantine, monthly, + GX       + validation               │
+                quota-aware                                dims        SRS,                                           ├──► dashboard (Streamlit)
+                                                                       anomalies                                     └──► ML forecast (MLflow)
+```
+
+- **Bronze** keeps API responses as received, one Parquet file per (location, year),
+  with the request parameters and download time.
+- **Silver** holds typed, validated hourly rows. Rows that break a physical rule go to a
+  quarantine table with the rules they broke.
+- **Gold** holds daily and monthly solar metrics, seasonal anomalies and the SRS.
+- **Publish** copies Silver and Gold from the DuckDB warehouse to the lake, so the
+  dashboard and other engines read Parquet and never contend for DuckDB's single writer.
+- **Airflow** chains four DAGs by data assets: `weather_ingestion` → `silver_transformation`
+  → `gold_analytics` → `ml_forecast`.
+
+More in [docs/architecture.md](docs/architecture.md) (layers, incremental loading,
+lineage) and [docs/data_dictionary.md](docs/data_dictionary.md) (every table and column).
+
+## Getting Started
+
+### Prerequisites
+
+- Docker with Compose v2
+- Python 3.10 or newer and `make`
+- Java 17 or newer, only for the benchmark
+
+### Run everything in Docker
 
 ```bash
-make up        # builds and starts everything
+git clone <repository-url> solarpulse && cd solarpulse
+make up        # creates .env from .env.example, builds images, starts all services
 make trigger   # runs the pipeline in Airflow now (it also runs daily)
 ```
 
@@ -102,187 +102,44 @@ make trigger   # runs the pipeline in Airflow now (it also runs daily)
 | MLflow | http://localhost:5001 |
 | Lake console (RustFS) | http://localhost:9001 |
 
-To run the steps on the host instead of Airflow:
+The first run downloads 16 years for 10 cities (160 requests, about 5 minutes).
+
+### Run the steps on the host
 
 ```bash
+make install    # virtualenv in .venv with requirements.txt
 make plan       # which partitions are missing, without downloading
-make ingest     # download only the missing partitions into Bronze
-make transform  # dbt build: Silver and Gold plus their tests
-make quality    # Great Expectations report in reports/
-make scoring    # SRS weight sensitivity and external validation
-make publish    # Silver and Gold as partitioned Parquet in the lake
-make ml         # train the forecast, tracked in MLflow
-make pipeline   # all of the above in order
-make test       # 36 unit and end-to-end tests, no network or Docker needed
-make docs       # dbt docs with the lineage graph
+make pipeline   # ingest → transform → quality → scoring → publish → ml
+make dashboard  # Streamlit on http://localhost:8501
+make help       # every target
 ```
 
-Backfills: `make backfill YEARS="2015 2016"` in Airflow, or
-`python -m src.ingestion.incremental_loader --backfill 2015 2016` on the host.
-No Docker? Set `SOLARPULSE_STORAGE_BACKEND=local` in `.env`; `make sample` fills
-`data/lake/` with synthetic data.
+### Configuration
 
-## How it works
-
-### Ingestion and Bronze
-
-| Module | Responsibility |
+| File | What it controls |
 | --- | --- |
-| [api_client.py](src/ingestion/api_client.py) | Reproducible requests, throttling, retryable (network, 429, 5xx) vs fatal (400) errors |
-| [retry_handler.py](src/ingestion/retry_handler.py) | Exponential backoff with jitter; honors `Retry-After` |
-| [extractor.py](src/ingestion/extractor.py) | Validates the response and adds extraction metadata |
-| [incremental_loader.py](src/ingestion/incremental_loader.py) | Plans missing `(location, year)` partitions and fetches only those |
-| [storage.py](src/common/storage.py) | Same interface for S3 and local disk; atomic writes |
+| [.env](.env.example) | Storage backend (`s3` or `local`), S3 credentials and endpoint, MLflow URI, alert webhook |
+| [config/settings.yml](config/settings.yml) | API variables and weather model, retries, history start, active locations, quota cap |
+| [config/locations.yml](config/locations.yml) | The 10 cities: coordinates, region, elevation |
+| [dbt/dbt_project.yml](dbt/dbt_project.yml) | Quality thresholds, indicator thresholds, SRS weights |
 
-- **Incremental:** each Parquet footer stores the requested date range, so the planner
-  reads footers only, never the data. Only the current year is refreshed daily.
-- **Idempotent:** each `(location, year)` partition is overwritten in full; tests prove
-  a rerun calls no API and a backfill never duplicates rows.
-- **Reproducible:** Bronze keeps the values as received plus the request parameters,
-  weather model, grid cell and download time.
-- **Resilient:** a failed partition is logged and retried next run; the others continue.
+Without Docker, set `SOLARPULSE_STORAGE_BACKEND=local` in `.env`: everything writes to
+`data/lake/`, and `make sample` fills it with synthetic data.
 
-### Silver and Gold (dbt)
-
-| Model | Layer | Load | Purpose |
-| --- | --- | --- | --- |
-| `stg_openmeteo__hourly` | staging | view | Rename and type Bronze, read straight from S3 |
-| `fact_hourly_weather` | Silver | incremental per Bronze partition | Valid hours with lineage columns |
-| `quarantine_hourly_weather` | Silver | incremental per Bronze partition | Rows that broke a rule, with the rules |
-| `dim_location`, `dim_date` | Silver | table | Locations; calendar with Colombian seasons |
-| `daily_solar_metrics` | Gold | incremental per affected day | Energy, diffuse ratio, volatility, heat stress |
-| `monthly_solar_metrics` | Gold | table | Mean, deviation and percentiles of daily energy |
-| `daily_radiation_anomalies` | Gold | table | Days far below their seasonal norm |
-| `location_reliability_score` | Gold | table | SRS components, score and ranks per period |
-
-A Silver model only reprocesses Bronze partitions downloaded since its last run: their
-rows are deleted and reinserted ([incremental_partitions.sql](dbt/macros/incremental_partitions.sql)).
-Rows that break a physical rule (ranges, DHI ≤ GHI, units, nulls, duplicates) go to
-quarantine with the list of rules they broke. 44 dbt tests guard keys, ranges,
-relationships, hourly coverage and the SRS weights.
-
-### Quality, lineage and observability
-
-- **Great Expectations** validates Silver and Gold independently of dbt and writes a
-  report to `reports/` and to the lake, with quarantine counts per rule.
-- **Lineage:** the dbt graph traces every Gold column to Bronze; every Silver row
-  carries its Bronze file, partition and download time.
-- **Run metrics:** every step records status, duration, peak memory and its own counts
-  (rows written, dbt node statuses and per-model seconds, failed expectations) in the
-  lake under `observability/runs/`, keyed by the Airflow run ID. The dashboard's
-  *Pipeline health* tab reads them.
-
-### Orchestration and CI/CD
-
-```
-weather_ingestion (@daily) ─Bronze─► silver_transformation ─Silver─► gold_analytics ─Gold─► ml_forecast
-  params: backfill_years,             dbt build silver                dbt build gold          train + register
-  locations                                                           → Great Expectations
-                                                                      → sensitivity, validation
-                                                                      → publish to the lake
-```
-
-- DAGs are chained by **data assets**, so each layer runs as soon as the previous changes.
-- **Retries** with exponential backoff and a **failure alert** (structured log, plus a
-  Slack-compatible webhook when `ALERT_WEBHOOK_URL` is set).
-- **Backfill parameters** are validated by a strict schema because they reach a shell command.
-- **One writer at a time:** DuckDB allows a single writer, so every warehouse task shares
-  a one-slot pool. The dashboard reads the published Parquet, never the warehouse.
-- **Isolated dependencies:** the pipeline runs in its own virtualenv inside the Airflow
-  image; Airflow never imports dbt or pandas.
-- **GitHub Actions** ([ci.yml](.github/workflows/ci.yml)): ruff, pytest on Python 3.10
-  and 3.12, a full dbt build + quality + scoring + publish on synthetic data (report and
-  dbt docs uploaded as artifacts), an import check of every DAG on Airflow 3.3.2, and a
-  build of both Docker images.
-
-## Scale and benchmark
-
-**National grid.** [grid.py](src/ingestion/grid.py) builds a grid over a simplified outline
-of mainland Colombia: 94 points at 1°, 370 at 0.5°, 1,488 at 0.25°. `--grid 0.25` ingests
-it into a separate Bronze table, and `--max-partitions N` caps each run so the load fits
-the API quota and continues the next day.
-
-| Grid | Points | Partitions (16 years) | Approx. API calls* | Days at 10,000 calls/day |
-| --- | --- | --- | --- | --- |
-| 1° | 94 | 1,504 | ~39,000 | ~4 |
-| 0.25° | 1,488 | 23,808 | ~620,000 | ~62 |
-
-\*Open-Meteo counts a request for more than 2 weeks of data as several calls; one year
-for one location is about 26. `make grid-plan GRID=1.0` prints the plan.
-
-**Benchmark** ([benchmarks/](benchmarks/)). Downloading the 0.25° grid would take about two
-months of free quota, so the benchmark uses synthetic data at real volume and with the
-Silver schema: 15 years for up to 1,000 grid points. Each engine runs the same SQL in a
-fresh process; peak memory covers the whole process tree, including Spark's JVM.
-
-| Grid points | Rows | Parquet | Engine | Startup (s) | Monthly agg. (s) | SRS ranking (s) | Hourly scan (s) | Peak memory |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 10 | 1.3 M | 0.02 GB | DuckDB | 0.0 | 0.01 | 0.01 | 0.01 | 149 MB |
-| 10 | 1.3 M | 0.02 GB | PySpark | 6.1 | 0.45 | 0.49 | 0.18 | 1,016 MB |
-| 100 | 13.1 M | 0.24 GB | DuckDB | 0.0 | 0.09 | 0.09 | 0.07 | 303 MB |
-| 100 | 13.1 M | 0.24 GB | PySpark | 5.9 | 2.36 | 1.51 | 0.48 | 1,811 MB |
-| 500 | 65.7 M | 1.22 GB | DuckDB | 0.0 | 0.72 | 0.60 | 0.32 | 678 MB |
-| 500 | 65.7 M | 1.22 GB | PySpark | 6.2 | 7.07 | 5.15 | 1.20 | 2,798 MB |
-| 1,000 | 131.5 M | 2.44 GB | DuckDB | 0.0 | 1.63 | 1.66 | 0.72 | 1,181 MB |
-| 1,000 | 131.5 M | 2.44 GB | PySpark | 8.8 | 16.06 | 7.19 | 2.52 | 3,570 MB |
-
-Apple M-series, 10 CPUs, 16 GB RAM; median of 3 runs. PySpark 4.2 in `local[*]` mode
-with 20 shuffle partitions; DuckDB with default settings.
-
-**When does one machine stop being enough?** Not within this project. DuckDB is 3.5–45×
-faster and uses a third of the memory or less at every size, and its memory grows far
-more slowly than the data. The full 0.25° grid (~196 M rows, ~3.6 GB of Parquet) is only
-1.5× the largest size tested. Spark earns its overhead when data no longer fits one
-machine's disk, when it already lives in a cluster, or when many jobs must run in
-parallel, none of which applies here.
-
-## Technical decisions
-
-- **Parquet + DuckDB instead of a cluster.** The benchmark shows one machine handles the
-  national grid with room to spare. I would move to Spark (or a warehouse) when the data
-  outgrows one machine's disk, roughly hundreds of GB, or when many jobs must run
-  concurrently.
-- **dbt for transformation, Airflow as the only orchestrator.** dbt owns *what* the data
-  means (SQL, tests, lineage); Airflow owns *when* it runs (schedules, retries, backfills,
-  alerts). dbt never schedules and Airflow never contains business logic.
-- **Partition-level incremental loads.** The unit of work everywhere is the Bronze
-  partition (location, year): ingestion overwrites it, Silver deletes and reinserts it,
-  Gold recomputes the days it touches. Backfills and reruns are safe by construction.
-- **Quarantine instead of delete.** Bad rows stay inspectable with the rules they broke,
-  so rules can be tuned without re-downloading data.
-- **The dashboard reads the lake, not the warehouse.** DuckDB has a single writer; reading
-  the published Parquet keeps the dashboard available while Airflow is writing.
-- **Databricks last.** The core is portable open source; Databricks would be an
-  extension, not a dependency.
-- **When I would not use Spark:** for anything this project does. It is 3.5–45× slower here
-  and starts in 6–9 s before running any query.
-
-## Data source and limitations
-
-- **Open-Meteo Historical Weather API**, ERA5 reanalysis (~25 km grid): model
-  reconstructions combined with observations, not station measurements. A single model
-  for all locations keeps them comparable over the whole history; ~9 km models exist but
-  only from 2017 or as a blend of models over time.
-- **Variables:** 2 m temperature, GHI, direct horizontal radiation, DHI and DNI, in W/m²
-  as the mean over the preceding hour, UTC.
-- **Terms:** free for non-commercial use, with request limits.
-- **The SRS is relative:** min-max normalization ranks locations against each other, so
-  adding a location changes every score. Its weights are a hypothesis (see the
-  sensitivity analysis), and it compares conditions, not production.
-- **Grid cells smooth terrain:** cities in valleys next to mountains (Cali, Cúcuta,
-  Bucaramanga) disagree most with the satellite references.
-
-## Repository layout
+## Project Structure
 
 ```
 solarpulse/
-├── airflow/dags/          # 4 DAGs chained by data assets
+├── airflow/dags/          # 4 DAGs chained by data assets, shared settings and alerts
 ├── benchmarks/            # synthetic grid data, PySpark vs DuckDB runner, results
 ├── config/                # locations, settings, external reference values
-├── dashboard/             # Streamlit app reading the published lake
-├── dbt/                   # models (staging, intermediate, silver, gold), macros, tests
+├── dashboard/             # Streamlit app that reads the published lake
+├── dbt/
+│   ├── models/            # staging → intermediate → marts/silver → marts/gold
+│   ├── macros/            # partition-level incremental loads, quality rules, generic tests
+│   └── tests/             # singular tests: coverage, closure, SRS weights
 ├── docker/                # Airflow and dashboard images
-├── docs/                  # architecture, data dictionary, methodology
+├── docs/                  # architecture, data dictionary, methodology, results
 ├── src/
 │   ├── common/            # config, storage, JSON logs, run metrics
 │   ├── ingestion/         # API client, retries, incremental loader, grid, synthetic data
@@ -291,18 +148,105 @@ solarpulse/
 │   ├── scoring/           # SRS in Python, sensitivity, external validation
 │   ├── ml/                # next-day forecast with MLflow
 │   └── lake/              # publish Silver and Gold to the lake
-├── tests/                 # unit, end-to-end (dbt on synthetic data), DAG import
+├── tests/                 # unit, end-to-end (dbt on synthetic data), ML leakage, DAGs
 ├── docker-compose.yml
 └── Makefile
 ```
 
-## Status
+## Key Features
 
-| Phase | Scope | Status |
-| --- | --- | --- |
-| 1 | Ingestion and Bronze | Done |
-| 2 | Silver and Gold with DuckDB + dbt, data quality, first SRS | Done |
-| 3 | Airflow, CI/CD, single-command environment | Done |
-| 4 | All 10 cities, national grid, PySpark vs DuckDB benchmark | Done |
-| 5 | ML with MLflow, SRS validation and sensitivity, dashboard, docs | Done |
-| 6 | Databricks Free Edition port (optional) | Planned |
+- **Incremental, idempotent ingestion:** the planner reads only Parquet footers to find
+  missing or incomplete years; reruns call no API and backfills never duplicate rows.
+- **Quota-aware loading:** retries with exponential backoff and `Retry-After`, throttling,
+  and a per-run partition cap so a national grid loads in daily batches.
+- **Partition-level incremental dbt models:** Silver reprocesses only the Bronze partitions
+  downloaded since its last run; Gold recomputes only the affected days.
+- **Quarantine, not delete:** invalid rows are kept with the list of rules they broke.
+- **Two layers of data quality:** 44 dbt tests that stop the build, plus Great Expectations
+  suites with a Markdown/JSON report kept in the lake.
+- **Lineage:** the dbt graph runs from Gold back to Bronze, and every Silver row carries
+  its Bronze file, partition and download time.
+- **Solar Reliability Score** with a weight sensitivity analysis and validation against
+  NASA POWER and Global Solar Atlas.
+- **Seasonal anomaly detection** and a **next-day forecast** tracked and registered in MLflow.
+- **Observability:** every step records status, duration, peak memory and its own counts,
+  keyed by the Airflow run ID; the dashboard's *Pipeline health* tab reads them.
+- **National grid and benchmark:** PySpark vs DuckDB up to 131 M rows, with the answer to
+  "when does one machine stop being enough?"
+- **One-command environment** and **CI on every pull request**.
+
+## Development Workflow
+
+1. Branch from `main`; `main` should always pass CI.
+2. Make the change and run `make lint` and `make test` locally.
+3. For dbt changes, run `make transform` and check the lineage with `make docs`.
+4. Commit with [Conventional Commits](https://www.conventionalcommits.org/)
+   (`feat(transform): ...`, `fix(ci): ...`), as in the existing history.
+5. Open a pull request. [CI](.github/workflows/ci.yml) runs:
+   - ruff and pytest on Python 3.10 and 3.12
+   - a full dbt build, quality report, scoring and publish on synthetic data, with the
+     report and dbt docs uploaded as artifacts
+   - an import check of every DAG against Airflow 3.3.2
+   - `docker compose config` and a build of both images
+
+In Airflow, `weather_ingestion` runs daily and the other DAGs follow when their input
+asset changes. Backfills: `make backfill YEARS="2015 2016"`.
+
+## Coding Standards
+
+- **English everywhere:** code, comments, log events, docs.
+- **Python:** type hints and `from __future__ import annotations`; ruff with rules
+  `E, F, I, UP, B` and a 100-character line limit ([pyproject.toml](pyproject.toml)).
+- **Configuration, not constants:** paths, credentials and thresholds come from
+  `config/`, `.env` or dbt vars. Credentials never live in YAML.
+- **Logs are structured JSON**, one event per line, with fields passed as `extra`.
+- **Every write is idempotent:** whole partitions are replaced (atomic temp file and
+  rename), never appended.
+- **dbt:** `staging` renames and types, `intermediate` prepares, `marts/silver` and
+  `marts/gold` publish. Every model has a YAML entry with descriptions and tests. The
+  project uses no external dbt packages; generic tests live in `dbt/macros/tests.sql`.
+- **Airflow DAGs only orchestrate:** each task runs `python -m src...` in the pipeline's
+  own virtualenv, and every task that touches DuckDB uses the `duckdb_warehouse` pool.
+
+## Testing
+
+| Suite | What it checks |
+| --- | --- |
+| [test_ingestion.py](tests/test_ingestion.py) | Planning, idempotency, backfills, retries, grid, quota batching (fake API client) |
+| [test_transformations.py](tests/test_transformations.py) | End to end: synthetic Bronze with planted bad rows → dbt build → quarantine, Gold, rebuild, backfill, publish; Python SRS equals dbt |
+| [test_data_quality.py](tests/test_data_quality.py) | Great Expectations suites pass clean data and catch broken data |
+| [test_ml.py](tests/test_ml.py) | Forecast features never use the target day or later years |
+| [test_dags.py](tests/test_dags.py) | DAGs import, task order, pools, retries and alerts (skipped without Airflow) |
+
+```bash
+make test        # 36 tests in about 20 s, no network or Docker
+make transform   # dbt models plus 44 data tests on real data
+make quality     # Great Expectations report in reports/
+```
+
+The pytest suites never call external services: a deterministic synthetic client
+stands in for the Open-Meteo API.
+
+## Contributing
+
+1. Read [docs/architecture.md](docs/architecture.md) and
+   [docs/methodology.md](docs/methodology.md) first.
+2. Follow the existing patterns:
+   - new data source → [incremental_loader.py](src/ingestion/incremental_loader.py)
+     (plan partitions, write atomically, record run metrics)
+   - new Gold model → [daily_solar_metrics.sql](dbt/models/marts/gold/daily_solar_metrics.sql)
+     and its entry in [_gold.yml](dbt/models/marts/gold/_gold.yml)
+   - new pipeline step → `tracked_run` from [run_metrics.py](src/common/run_metrics.py)
+     and a task in [gold_analytics.py](airflow/dags/gold_analytics.py)
+   - new test → the synthetic end-to-end fixture in
+     [test_transformations.py](tests/test_transformations.py)
+3. Changing the SRS weights or thresholds? Run `make scoring` and report how the ranking
+   moved.
+4. Open a pull request following the [development workflow](#development-workflow).
+
+## License
+
+Released under the [MIT License](LICENSE).
+
+Data sources keep their own terms: Open-Meteo data is free for non-commercial use, and
+Global Solar Atlas values are CC BY 4.0 ("Global Solar Atlas 2.0, Solargis").
