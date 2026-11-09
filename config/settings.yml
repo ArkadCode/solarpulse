@@ -43,3 +43,10 @@ storage:
 
 layers:
   bronze_table: bronze/raw_openmeteo
+
+warehouse:
+  # DuckDB file where dbt builds Silver and Gold before they are published to the lake.
+  path: data/warehouse/solarpulse.duckdb
+
+reports:
+  dir: reports

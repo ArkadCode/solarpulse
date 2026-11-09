@@ -14,3 +14,6 @@ mlruns/
 .DS_Store
 .vscode/
 .idea/
+reports/
+logs/
+dbt/.user.yml

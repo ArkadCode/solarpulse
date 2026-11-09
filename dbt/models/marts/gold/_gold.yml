@@ -1,0 +1,88 @@
+version: 2
+
+models:
+  - name: daily_solar_metrics
+    description: Daily solar indicators per location and local date.
+    data_tests:
+      - unique_combination:
+          arguments:
+            combination_of_columns: [location_id, date_local]
+    columns:
+      - name: hours_observed
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 1, max_value: 24}
+      - name: is_complete_day
+        description: True when all 24 hours are present. Only complete days feed statistics.
+      - name: ghi_kwh_m2
+        description: Solar Energy Potential, daily GHI energy in kWh/m² (sum of hourly W/m² / 1000).
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 12}
+      - name: diffuse_ratio
+        description: Diffuse Radiation Ratio, DHI / GHI over the day.
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 1.01}
+      - name: ramp_volatility
+        description: Solar Volatility, mean absolute hour-to-hour GHI change relative to mean daylight GHI.
+      - name: heat_stress_c
+        description: Temperature Stress Index, mean °C above 25 °C during daylight hours.
+      - name: sunshine_hours
+        description: Hours with DNI >= 120 W/m² (WMO sunshine definition).
+
+  - name: monthly_solar_metrics
+    description: Monthly distribution of daily energy (mean, deviation, percentiles) per location.
+    data_tests:
+      - unique_combination:
+          arguments:
+            combination_of_columns: [location_id, year, month]
+    columns:
+      - name: cv_daily_ghi
+        description: Coefficient of variation of daily energy within the month.
+      - name: low_radiation_share
+        description: Share of complete days below the low-radiation threshold (3 kWh/m²).
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 1}
+
+  - name: location_reliability_score
+    description: >
+      Solar Reliability Score per location and period ('all' or a calendar year).
+      A project indicator that compares solar conditions, not an official metric and not
+      an estimate of electricity production. See docs/methodology.md.
+    data_tests:
+      - unique_combination:
+          arguments:
+            combination_of_columns: [period, location_id]
+    columns:
+      - name: srs
+        description: Score from 0 to 100.
+        data_tests:
+          - not_null
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 100}
+      - name: srs_rank
+        description: 1 = best SRS in the period.
+      - name: mean_radiation_rank
+        description: 1 = highest mean daily energy. Compare with srs_rank.
+      - name: x_mean_radiation
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 1}
+      - name: x_variability
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 1}
+      - name: x_seasonality
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 1}
+      - name: x_low_radiation
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 1}
+      - name: x_temperature
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 1}

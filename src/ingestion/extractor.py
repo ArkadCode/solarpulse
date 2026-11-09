@@ -79,3 +79,16 @@ def response_to_table(
             "extracted_at": extracted_at.isoformat(),
         }
     )
+
+
+LOCATIONS_TABLE = "bronze/ref_locations"
+
+
+def locations_to_table(locations: list[Location]) -> pa.Table:
+    """Reference table with every configured location, written as-is to Bronze."""
+    rows = [vars(loc) for loc in locations]
+    table = pa.Table.from_pylist(rows)
+    extracted_at = datetime.now(timezone.utc)
+    return table.append_column(
+        "extracted_at", pa.array([extracted_at] * len(rows), pa.timestamp("us", tz="UTC"))
+    )

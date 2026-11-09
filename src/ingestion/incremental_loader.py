@@ -21,7 +21,13 @@ from src.common.config import Location, load_locations, load_settings
 from src.common.logging import get_logger
 from src.common.storage import Lake
 from src.ingestion.api_client import OpenMeteoClient
-from src.ingestion.extractor import partition_path, response_to_table
+from src.ingestion.extractor import (
+    LOCATIONS_TABLE,
+    locations_to_table,
+    partition_path,
+    response_to_table,
+)
+from src.ingestion.synthetic import SyntheticClient
 
 log = get_logger("incremental_loader")
 
@@ -150,6 +156,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--start-date", type=date.fromisoformat, help="History start date")
     parser.add_argument("--end-date", type=date.fromisoformat, help="End date (default: today-lag)")
     parser.add_argument("--dry-run", action="store_true", help="Only print the plan")
+    parser.add_argument(
+        "--synthetic", action="store_true", help="Use synthetic data, no API calls"
+    )
     args = parser.parse_args(argv)
 
     settings = load_settings()
@@ -159,9 +168,19 @@ def main(argv: list[str] | None = None) -> int:
     history_start = args.start_date or date.fromisoformat(ing["history_start_date"])
     end_date = args.end_date or date.today() - timedelta(days=ing.get("end_date_lag_days", 7))
 
+    lake = Lake.from_settings(settings)
+    client: WeatherClient = (
+        SyntheticClient(settings["api"])
+        if args.synthetic
+        else OpenMeteoClient(settings["api"], settings["retry"])
+    )
+    if not args.dry_run:
+        # Reference data always lists every configured location, not just this run's subset.
+        lake.write_parquet(f"{LOCATIONS_TABLE}/data.parquet", locations_to_table(load_locations()))
+
     metrics = run_ingestion(
-        lake=Lake.from_settings(settings),
-        client=OpenMeteoClient(settings["api"], settings["retry"]),
+        lake=lake,
+        client=client,
         locations=locations,
         history_start=history_start,
         end_date=end_date,

@@ -1,0 +1,84 @@
+version: 2
+
+models:
+  - name: fact_hourly_weather
+    description: >
+      One valid row per location and hour. Loaded incrementally per Bronze partition.
+      Rows that fail a quality rule go to quarantine_hourly_weather instead.
+    data_tests:
+      - unique_combination:
+          arguments:
+            combination_of_columns: [location_id, timestamp_utc]
+    columns:
+      - name: location_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_location')
+                field: location_id
+      - name: timestamp_utc
+        description: Hour start in UTC.
+        data_tests: [not_null]
+      - name: timestamp_local
+        description: Hour start in Colombian local time (UTC-5).
+      - name: date_local
+        description: Local calendar date, used for every daily aggregate.
+      - name: ghi_wm2
+        description: Global horizontal irradiance, W/m², mean of the previous hour.
+        data_tests:
+          - not_null
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 1400}
+      - name: dhi_wm2
+        description: Diffuse horizontal irradiance, W/m².
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 1400}
+      - name: dni_wm2
+        description: Direct normal irradiance, W/m².
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 1400}
+      - name: direct_horizontal_wm2
+        description: Direct radiation on a horizontal plane, W/m².
+      - name: temperature_c
+        description: Air temperature at 2 m, °C.
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: -20, max_value: 50}
+      - name: _bronze_source_file
+        description: Bronze Parquet file the row came from (lineage).
+      - name: _bronze_extracted_at
+        description: When the Bronze partition was downloaded. Drives incremental loads.
+
+  - name: quarantine_hourly_weather
+    description: Rows that failed at least one hourly quality rule, with the rules they broke.
+    columns:
+      - name: failed_rules
+        description: >
+          List of broken rules: missing_required, unexpected_unit, ghi_out_of_range,
+          dhi_out_of_range, direct_out_of_range, dni_out_of_range,
+          temperature_out_of_range, duplicate_key.
+        data_tests: [not_null]
+
+  - name: dim_location
+    description: Analyzed locations with region and coordinates.
+    columns:
+      - name: location_id
+        data_tests: [unique, not_null]
+      - name: region
+        data_tests: [not_null]
+
+  - name: dim_date
+    description: Calendar for every local date in the fact table, with Colombian seasons.
+    columns:
+      - name: date_key
+        data_tests: [unique, not_null]
+      - name: date
+        data_tests: [unique, not_null]
+      - name: season_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [dry, rainy]

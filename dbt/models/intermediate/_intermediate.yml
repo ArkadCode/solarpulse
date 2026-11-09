@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: int_reliability_components
+    description: Raw SRS components per location and period, before normalization.
+    data_tests:
+      - unique_combination:
+          arguments:
+            combination_of_columns: [period, location_id]
+    columns:
+      - name: daily_cv
+        description: Coefficient of variation of daily energy (day-to-day variability).
+      - name: seasonality_cv
+        description: Coefficient of variation of the 12 monthly mean daily energies.
+      - name: low_radiation_share
+        description: Share of complete days below the low-radiation threshold.

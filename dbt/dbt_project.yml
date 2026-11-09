@@ -1,0 +1,49 @@
+name: solarpulse
+version: "0.2.0"
+config-version: 2
+profile: solarpulse
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: target
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Colombia uses UTC-5 all year (no daylight saving time).
+  local_utc_offset_hours: -5
+
+  # Physical ranges for the quality rules. Rows outside them go to quarantine.
+  max_irradiance_wm2: 1400
+  min_temperature_c: -20
+  max_temperature_c: 50
+  # Tolerance when checking DHI <= GHI and direct <= GHI (API values are rounded).
+  irradiance_tolerance_wm2: 1
+
+  # Indicator thresholds.
+  sunshine_dni_threshold_wm2: 120     # WMO definition of a sunshine hour
+  low_radiation_day_kwh_m2: 3.0       # a day below this counts as low radiation
+  heat_stress_base_c: 25              # panel efficiency drops above ~25 °C
+  min_complete_days_per_year: 360     # a year needs this many complete days to be scored
+
+  # Solar Reliability Score weights (must sum to 1). A starting hypothesis, not a truth.
+  srs_weights:
+    mean_radiation: 0.35
+    variability: 0.25
+    seasonality: 0.15
+    low_radiation: 0.15
+    temperature: 0.10
+
+models:
+  solarpulse:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: view
+      +schema: intermediate
+    marts:
+      silver:
+        +schema: silver
+      gold:
+        +schema: gold

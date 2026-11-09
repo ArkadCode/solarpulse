@@ -17,8 +17,8 @@ optional final phase.
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 1 | Ingestion and Bronze | Done |
-| 2 | Silver and Gold with DuckDB + dbt, data quality, first SRS | Next |
-| 3 | Airflow, CI/CD, single-command environment | Planned |
+| 2 | Silver and Gold with DuckDB + dbt, data quality, first SRS | Done |
+| 3 | Airflow, CI/CD, single-command environment | Next |
 | 4 | Scale to a national grid, PySpark vs DuckDB benchmark | Planned |
 | 5 | ML with MLflow, SRS validation, dashboard, docs | Planned |
 | 6 | Databricks Free Edition port (optional) | Planned |
@@ -32,11 +32,48 @@ cp .env.example .env
 make up        # starts the S3-compatible object store (console: http://localhost:9001)
 make plan      # shows which partitions are missing, without downloading
 make ingest    # downloads only the missing partitions into Bronze
-make inspect   # rows per location/year and duplicate check
-make test      # unit tests (no network needed)
+make transform # dbt build: Silver and Gold plus 42 data tests
+make quality   # Great Expectations report in reports/
+make publish   # Silver and Gold as partitioned Parquet in the lake
+make test      # unit and end-to-end tests (no network or Docker needed)
 ```
 
-No Docker? `make ingest-local` writes the same layout to `data/lake/`.
+`make pipeline` runs ingest → transform → quality → publish. `make docs` opens the dbt
+docs with the lineage graph. No Docker? Set `SOLARPULSE_STORAGE_BACKEND=local` in `.env`
+and everything writes to `data/lake/`; `make sample` fills it with synthetic data.
+
+## First results
+
+Full history 2011–2026, 5 cities, 694,200 valid hours, 0 quarantined.
+
+| SRS rank | Location | SRS | Mean daily GHI (kWh/m²) | Radiation rank |
+| --- | --- | --- | --- | --- |
+| 1 | Barranquilla | 79.2 | 5.69 | 1 |
+| 2 | Riohacha (La Guajira) | 79.1 | 5.58 | 2 |
+| 3 | Medellín | 51.4 | 5.25 | 3 |
+| 4 | Bogotá | 47.0 | 4.61 | 4 |
+| 5 | Cali | 23.4 | 4.28 | 5 |
+
+With 5 cities, the SRS ranking matches the ranking by mean radiation for the full
+history, but not every year: in 2011–2013 and 2022 Bogotá beats Medellín on SRS, and
+Barranquilla and La Guajira swap first place from year to year. The Caribbean pair are
+virtually tied: La Guajira has fewer low-radiation days and less day-to-day
+variability, Barranquilla slightly more energy. See [docs/methodology.md](docs/methodology.md).
+
+## Phase 2: Silver, Gold and data quality
+
+| Model | Layer | Load | Purpose |
+| --- | --- | --- | --- |
+| `stg_openmeteo__hourly` | staging | view | Rename and type Bronze, read straight from S3 |
+| `fact_hourly_weather` | Silver | incremental per Bronze partition | Valid hours with lineage columns |
+| `quarantine_hourly_weather` | Silver | incremental per Bronze partition | Rows that broke a rule, with the rules |
+| `dim_location`, `dim_date` | Silver | table | Locations; calendar with Colombian seasons |
+| `daily_solar_metrics` | Gold | incremental per affected day | Energy, diffuse ratio, volatility, heat stress |
+| `monthly_solar_metrics` | Gold | table | Mean, deviation and percentiles of daily energy |
+| `location_reliability_score` | Gold | table | SRS components, score and ranks per period |
+
+Docs: [architecture](docs/architecture.md) · [data dictionary](docs/data_dictionary.md) ·
+[methodology](docs/methodology.md).
 
 ### Backfills and options
 

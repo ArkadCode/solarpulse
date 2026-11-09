@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: stg_openmeteo__hourly
+    description: Bronze hourly records renamed and typed. Nothing is filtered here.
+    columns:
+      - name: location_id
+        data_tests: [not_null]
+      - name: timestamp_utc
+        description: Hour start in UTC. Radiation is the mean of the previous hour.
+      - name: irradiance_unit
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["W/m²"]
+      - name: temperature_unit
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["°C"]
+
+  - name: stg_locations
+    description: Configured locations from config/locations.yml.
+    columns:
+      - name: location_id
+        data_tests: [unique, not_null]

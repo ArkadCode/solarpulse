@@ -1,0 +1,22 @@
+# All values come from environment variables set by src/transform/dbt_runner.py.
+solarpulse:
+  target: "{{ env_var('SOLARPULSE_STORAGE_BACKEND', 's3') }}"
+  outputs:
+    s3:
+      type: duckdb
+      path: "{{ env_var('SOLARPULSE_WAREHOUSE', 'solarpulse.duckdb') }}"
+      threads: 4
+      extensions:
+        - httpfs
+      secrets:
+        - type: s3
+          key_id: "{{ env_var('S3_ACCESS_KEY', 'solarpulse') }}"
+          secret: "{{ env_var('S3_SECRET_KEY', 'solarpulse-secret') }}"
+          endpoint: "{{ env_var('S3_ENDPOINT', 'localhost:9000') }}"
+          region: "{{ env_var('S3_REGION', 'us-east-1') }}"
+          url_style: path
+          use_ssl: "{{ env_var('S3_USE_SSL', 'false') }}"
+    local:
+      type: duckdb
+      path: "{{ env_var('SOLARPULSE_WAREHOUSE', 'solarpulse.duckdb') }}"
+      threads: 4
