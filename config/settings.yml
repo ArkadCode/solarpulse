@@ -24,6 +24,9 @@ ingestion:
   history_start_date: "2011-01-01"
   # The historical archive is published with a delay of a few days.
   end_date_lag_days: 7
+  # Set a date (e.g. "2026-11-02") to freeze the history and reproduce published results.
+  # Empty = follow the archive (today - end_date_lag_days).
+  end_date:
   # Empty list = every location in locations.yml (phase 4: all 10 cities).
   # List IDs here to restrict ingestion to a subset.
   active_locations: []

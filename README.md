@@ -18,10 +18,36 @@ a Medallion lakehouse on an S3-compatible object store, dbt models with tests an
 quarantine, Airflow orchestration with backfills, CI/CD, run metrics, an ML model tracked
 in MLflow and a dashboard. Everything runs locally on free, open-source tools.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/srs-ranking-dark.svg">
+  <img alt="Solar Reliability Score ranking: Barranquilla 80.0, Riohacha 79.9, Santa Marta 73.7, Cartagena 70.2, Cúcuta 66.4, Medellín 52.6, Bogotá 46.8, Villavicencio 33.8, Bucaramanga 33.6, Cali 23.2, with a map of Colombia" src="docs/images/srs-ranking-light.svg">
+</picture>
+
+## City Ranking
+
+| SRS rank | City | Region | SRS (0–100) | Mean daily GHI (kWh/m²) | Rank by radiation alone |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Barranquilla | Caribbean | 80.0 | 5.69 | 1 |
+| 2 | Riohacha (La Guajira) | Caribbean | 79.9 | 5.58 | 2 |
+| 3 | Santa Marta | Caribbean | 73.7 | 5.33 | 4 ▲ |
+| 4 | Cartagena | Caribbean | 70.2 | 5.48 | 3 ▼ |
+| 5 | Cúcuta | Andean | 66.4 | 5.20 | 6 ▲ |
+| 6 | Medellín | Andean | 52.6 | 5.25 | 5 ▼ |
+| 7 | Bogotá | Andean | 46.8 | 4.61 | 8 ▲ |
+| 8 | Villavicencio | Orinoquia | 33.8 | 4.95 | 7 ▼ |
+| 9 | Bucaramanga | Andean | 33.6 | 4.53 | 9 |
+| 10 | Cali | Andean | 23.2 | 4.28 | 10 |
+
+History 2011-01-01 to 2026-11-02, 1,388,400 valid hourly rows, 0 quarantined.
+
+**Is the sunniest city also the most reliable?** At the top, yes: Barranquilla leads
+both rankings, virtually tied with La Guajira. Below them, stability reorders the list:
+Santa Marta overtakes Cartagena (lower variability and seasonality), Cúcuta overtakes
+Medellín (the least seasonal of the ten), and Bogotá overtakes Villavicencio (whose rainy
+season brings many low-radiation days).
+
 **Results at a glance** (details in [docs/results.md](docs/results.md)):
 
-- Barranquilla (SRS 80.0) and La Guajira (79.9) lead; Cali (23.2) is last. Below the top
-  two, stability reorders the cities compared with ranking by radiation alone.
 - The ranking is robust to the weights (mean Spearman 0.98 over 5,000 weight sets), and
   ERA5 agrees with Global Solar Atlas about as well as two satellite products agree with
   each other.
@@ -56,15 +82,10 @@ Dependency ranges live in [requirements.txt](requirements.txt),
 
 ## Project Architecture
 
-```
-                ┌───────────────────────── Airflow 3 (orchestration) ─────────────────────────┐
-                │                                                                             │
- Open-Meteo ──► ingestion ──► Bronze ──► dbt on DuckDB ──► Silver ──► Gold ──► quality ──► scoring ──► publish ──► lake Parquet
-   API          (Python)      Parquet    incremental       fact,       daily,   dbt tests  sensitivity            (S3-compatible)
-                retries,      on S3      per partition     quarantine, monthly, + GX       + validation               │
-                quota-aware                                dims        SRS,                                           ├──► dashboard (Streamlit)
-                                                                       anomalies                                     └──► ML forecast (MLflow)
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/architecture-dark.svg">
+  <img alt="Architecture: Open-Meteo API to Python ingestion to Bronze Parquet on an S3-compatible store, then dbt on DuckDB builds Silver and Gold, checked by dbt tests, Great Expectations, sensitivity and validation, and published to the lake for the dashboard, the MLflow forecast and the benchmark. Airflow orchestrates every step and GitHub Actions checks every change." src="docs/images/architecture-light.svg">
+</picture>
 
 - **Bronze** keeps API responses as received, one Parquet file per (location, year),
   with the request parameters and download time.
@@ -125,6 +146,89 @@ make help       # every target
 
 Without Docker, set `SOLARPULSE_STORAGE_BACKEND=local` in `.env`: everything writes to
 `data/lake/`, and `make sample` fills it with synthetic data.
+
+## Reproduce the Results
+
+Anyone can rebuild the ranking above from scratch: every input is public and free, and
+no account or API key is needed.
+
+### What you need
+
+| Resource | Minimum |
+| --- | --- |
+| Docker memory | 6 GB (8 GB recommended): Airflow, Postgres, MLflow, the lake and the dashboard |
+| Disk | About 6 GB for images and data (plus 2.5 GB for the optional benchmark) |
+| Free ports | 8080, 8501, 5001, 9000, 9001 |
+| Network | Access to `archive-api.open-meteo.com` |
+| Time | About 15 minutes the first time (image build ~10 min, download ~5 min) |
+
+### Step by step
+
+1. **Freeze the date range** so your numbers match the ones published here. In
+   [config/settings.yml](config/settings.yml) set:
+
+   ```yaml
+   ingestion:
+     end_date: "2026-11-02"
+   ```
+
+   Leave it empty to follow the archive up to today minus 7 days instead.
+
+2. **Start the environment and run the pipeline:**
+
+   ```bash
+   git clone <repository-url> solarpulse && cd solarpulse
+   make up
+   make trigger
+   ```
+
+3. **Watch it run** at http://localhost:8080. Four DAGs run in sequence:
+   `weather_ingestion` → `silver_transformation` → `gold_analytics` → `ml_forecast`.
+   All four should end green within about 10 minutes.
+
+4. **Check the results** at http://localhost:8501 or from the command line:
+
+   ```bash
+   make install   # host virtualenv, once
+   make inspect   # Bronze rows per city and year, plus a duplicate check
+   make figures   # redraws the images in docs/images from your Gold tables
+   ```
+
+### What you should see
+
+| Check | Expected value |
+| --- | --- |
+| Bronze and Silver hourly rows | 1,388,400 (10 cities × 138,840 hours) |
+| Quarantined rows | 0 |
+| Duplicate `(location, hour)` rows | 0 |
+| dbt build | 55 nodes pass (11 models, 44 tests) |
+| Great Expectations report | `PASS` in `reports/data_quality_report.md` |
+| SRS leader | Barranquilla 80.0, Riohacha 79.9 |
+| Forecast skill vs climatology | about +22 % on 2024–2026 |
+
+Small differences in the last decimal are possible: ERA5 publishes a preliminary version
+for the most recent months and revises it later. Rankings, row counts and quality checks
+should match exactly.
+
+### Reproduce other parts
+
+| What | Command | Notes |
+| --- | --- | --- |
+| Unit and end-to-end tests | `make test` | No network or Docker; about 20 seconds |
+| External validation references | `python -m src.scoring.fetch_reference` | Results are already committed in [config/external_reference.csv](config/external_reference.csv) |
+| PySpark vs DuckDB benchmark | `make benchmark` | Needs Java 17+; timings depend on your machine |
+| National grid plan | `make grid-plan GRID=1.0` | Prints how many partitions and API calls a grid needs |
+
+### Troubleshooting
+
+- **A port is already in use:** stop the other service or change the left-hand port in
+  [docker-compose.yml](docker-compose.yml).
+- **A task fails with HTTP 429:** the free API quota was hit. The task retries with
+  backoff; if it still fails, trigger it again later. Downloaded years are kept.
+- **Airflow tasks fail with a DuckDB lock error:** a process on the host has the
+  warehouse open (for example a notebook). Close it; tasks retry automatically.
+- **Start over:** `make down`, then `docker volume rm solarpulse_lake_data` and
+  `rm -rf data/` to delete every downloaded and derived file.
 
 ## Project Structure
 

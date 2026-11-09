@@ -2,7 +2,7 @@ PYTHON ?= python3.10
 VENV   := .venv
 BIN    := $(VENV)/bin
 
-.PHONY: help install up down trigger backfill grid-plan benchmark scoring ml dashboard test lint plan ingest ingest-local sample inspect transform quality publish pipeline docs clean
+.PHONY: help install up down trigger backfill grid-plan benchmark scoring ml dashboard figures test lint plan ingest ingest-local sample inspect transform quality publish pipeline docs clean
 
 help:
 	@echo "install       create the virtualenv and install dependencies"
@@ -21,6 +21,7 @@ help:
 	@echo "ml            train the next-day forecast, tracked in MLflow"
 	@echo "pipeline      ingest -> transform -> quality -> scoring -> publish -> ml"
 	@echo "dashboard     Streamlit dashboard on the host (http://localhost:8501)"
+	@echo "figures       regenerate the README images in docs/images from Gold"
 	@echo "docs          generate and serve dbt docs with the lineage graph"
 	@echo "grid-plan     how many partitions a national grid needs (GRID=0.25)"
 	@echo "benchmark     PySpark local vs DuckDB at 10-1000 grid points (needs Java 17+)"
@@ -81,6 +82,9 @@ ml: install
 	$(BIN)/python -m src.ml.forecast
 
 pipeline: ingest transform quality scoring publish ml
+
+figures: install
+	$(BIN)/python -m src.reporting.figures
 
 dashboard: install
 	$(BIN)/pip install -q -r dashboard/requirements.txt

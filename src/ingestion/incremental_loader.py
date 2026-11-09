@@ -189,7 +189,14 @@ def main(argv: list[str] | None = None) -> int:
     table = GRID_TABLE if args.grid else BRONZE_TABLE
     max_partitions = args.max_partitions or ing.get("max_partitions_per_run")
     history_start = args.start_date or date.fromisoformat(ing["history_start_date"])
-    end_date = args.end_date or date.today() - timedelta(days=ing.get("end_date_lag_days", 7))
+    # A fixed end_date in settings reproduces a published run exactly; otherwise the
+    # history follows the archive, which lags real time by a few days.
+    fixed_end = ing.get("end_date")
+    end_date = args.end_date or (
+        date.fromisoformat(str(fixed_end))
+        if fixed_end
+        else date.today() - timedelta(days=ing.get("end_date_lag_days", 7))
+    )
 
     lake = Lake.from_settings(settings)
     client: WeatherClient = (
