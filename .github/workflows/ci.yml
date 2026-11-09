@@ -27,8 +27,8 @@ jobs:
       matrix:
         python: ["3.10", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -42,8 +42,8 @@ jobs:
     name: dbt build on sample data
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -62,7 +62,7 @@ jobs:
         run: python -m src.lake.publish
       - name: dbt docs (lineage)
         run: python -m src.transform.dbt_runner docs generate
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: quality-report-and-dbt-docs
@@ -75,15 +75,21 @@ jobs:
   airflow-dags:
     name: Airflow DAGs load
     runs-on: ubuntu-latest
+    env:
+      AIRFLOW_HOME: ${{ github.workspace }}/.airflow-ci
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install Airflow with official constraints
         run: |
           pip install "apache-airflow==3.3.2" pytest \
             --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt"
+      - name: Create a throwaway Airflow metadata database
+        # Airflow 3 reads its metadata DB while loading DAGs; SQLite is enough here.
+        run: airflow db migrate
       - name: Import every DAG
         run: pytest -q tests/test_dags.py
 
@@ -91,7 +97,7 @@ jobs:
     name: Docker Compose config
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: docker compose config --quiet
       - name: Build images
         run: docker compose build
