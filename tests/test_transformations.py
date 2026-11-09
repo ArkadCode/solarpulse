@@ -180,3 +180,39 @@ def test_publish_writes_partitioned_parquet_to_the_lake(built):
     # Publishing again replaces partitions instead of appending.
     publish_all(built["settings"])
     assert built["lake"].read_dataset("silver/fact_hourly_weather").num_rows == fact.num_rows
+
+
+# --- Phase 5: scoring checks on the same warehouse ----------------------------------
+
+
+def test_python_srs_matches_dbt(built):
+    from src.scoring.sensitivity import load_components
+    from src.scoring.srs import dbt_weights, normalized_components, scores
+
+    raw = load_components(built["settings"])
+    python_srs = scores(normalized_components(raw), dbt_weights()).round(2)
+    dbt_srs = dict(
+        query(built, "select location_id, srs from gold.location_reliability_score "
+                     "where period = 'all'")
+    )
+    for location_id, value in python_srs.items():
+        assert value == pytest.approx(dbt_srs[location_id], abs=0.01)
+
+
+def test_sensitivity_analysis_runs(built):
+    from src.scoring.sensitivity import analyze, load_components
+    from src.scoring.srs import dbt_weights
+
+    result = analyze(load_components(built["settings"]), dbt_weights())
+    assert len(result["per_location"]) == len(LOCATION_IDS)
+    assert -1 <= result["mean_spearman"] <= 1
+    assert sum(r["p_rank_1"] for r in result["per_location"]) == pytest.approx(1, abs=0.01)
+
+
+def test_anomalies_are_centered_on_the_climatology(built):
+    mean_z, classes = query(
+        built,
+        "select avg(z_score), list(distinct anomaly_class) from gold.daily_radiation_anomalies",
+    )[0]
+    assert abs(mean_z) < 0.1
+    assert set(classes) <= {"unusually_low", "normal", "unusually_high"}

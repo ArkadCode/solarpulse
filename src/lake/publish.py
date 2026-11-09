@@ -39,6 +39,7 @@ TABLES = (
     PublishedTable("gold.daily_solar_metrics", "gold/daily_solar_metrics", ("year",)),
     PublishedTable("gold.monthly_solar_metrics", "gold/monthly_solar_metrics"),
     PublishedTable("gold.location_reliability_score", "gold/location_reliability_score"),
+    PublishedTable("gold.daily_radiation_anomalies", "gold/daily_radiation_anomalies", ("year",)),
 )
 
 

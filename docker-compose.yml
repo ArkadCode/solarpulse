@@ -2,6 +2,8 @@
 #
 #   object-store   S3-compatible lake (RustFS)        http://localhost:9001
 #   airflow-*      Airflow 3 with LocalExecutor        http://localhost:8080
+#   dashboard      Streamlit, reads the published lake http://localhost:8501
+#   mlflow         MLflow tracking server + registry   http://localhost:5001
 #   postgres       Airflow metadata database
 #
 # RustFS is an open-source (Apache-2.0), S3-compatible object store and a drop-in
@@ -29,6 +31,7 @@ x-airflow: &airflow
     S3_ACCESS_KEY: ${S3_ACCESS_KEY:-solarpulse}
     S3_SECRET_KEY: ${S3_SECRET_KEY:-solarpulse-secret}
     ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    MLFLOW_TRACKING_URI: http://mlflow:5000
   volumes:
     - .:/opt/solarpulse
   depends_on: &airflow-depends
@@ -108,6 +111,39 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.18.0
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --serve-artifacts --artifacts-destination /mlflow/artifacts
+      --allowed-hosts "mlflow:5000,localhost:5001,127.0.0.1:5001"
+    ports:
+      - "5001:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/dashboard/Dockerfile
+    image: solarpulse-dashboard:latest
+    ports:
+      - "8501:8501"
+    environment:
+      SOLARPULSE_STORAGE_BACKEND: s3
+      S3_ENDPOINT: object-store:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-solarpulse}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-solarpulse-secret}
+    volumes:
+      - .:/opt/solarpulse
+    depends_on:
+      object-store:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   lake_data:
   airflow_db:
+  mlflow_data:

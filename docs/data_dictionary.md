@@ -106,3 +106,19 @@ Key: (`period`, `location_id`). `period` is `all` or a year.
 | `x_mean_radiation` … `x_temperature` | Normalized components, 0–1, 1 = best |
 | `mean_daily_ghi_kwh_m2`, `daily_cv`, `ramp_volatility`, `seasonality_cv`, `low_radiation_share`, `heat_stress_c` | Raw components |
 | `complete_days`, `first_date`, `last_date` | Data behind the score |
+
+### `gold.daily_radiation_anomalies`
+
+Key: (`location_id`, `date_local`). `ghi_kwh_m2`, `clim_mean_kwh_m2`, `clim_std_kwh_m2`
+(±7-day seasonal climatology), `z_score`, `pct_anomaly`, `anomaly_class`
+(`unusually_low` / `normal` / `unusually_high`).
+
+## Written by Python (lake only)
+
+| Path | Written by | Content |
+| --- | --- | --- |
+| `gold/srs_sensitivity/` | `src/scoring/sensitivity.py` | Per location: baseline rank, P(rank 1), median rank, 5–95 % rank interval |
+| `gold/srs_validation/` | `src/scoring/validation.py` | ERA5 vs NASA POWER vs Global Solar Atlas mean daily GHI and ranks |
+| `gold/ghi_forecast_test/` | `src/ml/forecast.py` | Test-period observed GHI, persistence, climatology and model forecast |
+| `quality/reports/*.json` | `src/quality/run_quality.py` | One Great Expectations report per run |
+| `observability/runs/step=*/` | every step | Status, duration, peak memory and counts per run |

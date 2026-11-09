@@ -31,17 +31,21 @@ def test_no_import_errors(dagbag):
 
 
 def test_expected_dags(dagbag):
-    assert set(dagbag.dag_ids) == {"weather_ingestion", "silver_transformation", "gold_analytics"}
+    assert set(dagbag.dag_ids) == {
+        "weather_ingestion", "silver_transformation", "gold_analytics", "ml_forecast"
+    }
 
 
 def test_gold_task_order(dagbag):
     dag = dagbag.get_dag("gold_analytics")
+    checks = {"srs_sensitivity", "srs_external_validation"}
     assert dag.get_task("dbt_build_gold").downstream_task_ids == {"great_expectations_report"}
-    assert dag.get_task("great_expectations_report").downstream_task_ids == {"publish_to_lake"}
+    assert dag.get_task("great_expectations_report").downstream_task_ids == checks
+    assert dag.get_task("publish_to_lake").upstream_task_ids == checks
 
 
 def test_warehouse_tasks_share_single_writer_pool(dagbag):
-    for dag_id in ("silver_transformation", "gold_analytics"):
+    for dag_id in ("silver_transformation", "gold_analytics", "ml_forecast"):
         for task in dagbag.get_dag(dag_id).tasks:
             assert task.pool == "duckdb_warehouse", (dag_id, task.task_id)
 

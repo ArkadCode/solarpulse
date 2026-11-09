@@ -97,8 +97,64 @@ build if they do not sum to 1. They are a starting hypothesis, not a scientific 
 - **Low-radiation threshold.** 3 kWh/m²/day is a fixed project choice
   (`low_radiation_day_kwh_m2`). A different threshold changes that component.
 
-## Planned checks (phase 5)
+## Robustness checks
 
-- **Sensitivity analysis:** vary the weights and measure how much the ranking changes.
-- **External validation:** compare mean daily GHI with the IDEAM/UPME Solar Radiation
-  Atlas of Colombia or Global Solar Atlas.
+### Weight sensitivity (`src/scoring/sensitivity.py`)
+
+The weights are a hypothesis, so the ranking is recomputed under other weights:
+
+- **One at a time:** each weight moves ±10 percentage points and the rest are rescaled
+  to keep the sum at 1. No city moves more than 2 places in any of the 10 variants.
+- **Monte Carlo:** 5,000 weight vectors drawn from a Dirichlet distribution centered on
+  the baseline (concentration 50). The mean Spearman correlation with the baseline
+  ranking is 0.98. Places 3–10 barely move; first place is a toss-up between
+  Barranquilla (54 % of samples) and La Guajira (46 %).
+
+Conclusion: the *ordering* is robust; the gap between the two Caribbean leaders is not.
+A Python re-implementation of the formula is tested to match the dbt model.
+
+### External validation (`src/scoring/validation.py`)
+
+Mean daily GHI from SolarPulse (ERA5 via Open-Meteo, 2011–2026) is compared with two
+independent satellite-based sources, stored in `config/external_reference.csv`:
+
+| Comparison | Mean bias | MAE | Rank agreement (Spearman) |
+| --- | --- | --- | --- |
+| ERA5 vs NASA POWER (CERES, 2001–2025) | +0.15 kWh/m²/day | 0.34 (7.2 %) | 0.74 |
+| ERA5 vs Global Solar Atlas (Solargis) | −0.22 kWh/m²/day | 0.27 (5.2 %) | 0.82 |
+| NASA POWER vs Global Solar Atlas | | | 0.83 |
+
+ERA5 agrees with Global Solar Atlas about as well as the two satellite products agree
+with each other. The largest disagreements are inland valleys and cities next to
+mountains (Cali, Cúcuta, Bucaramanga), where a ~25 km reanalysis cell mixes valley floor
+and slopes. The IDEAM/UPME atlas was not used because it is distributed as maps, not as
+an API or table; Global Solar Atlas fills the same role.
+
+## Daily anomalies (`gold.daily_radiation_anomalies`)
+
+Each day's energy is compared with its own seasonal climatology: same location, ±7 days
+of the year, all years. Days with a z-score ≤ −2 are `unusually_low`. Because cloudy days
+pull the daily distribution's tail downward, low anomalies are far more frequent than
+high ones (e.g. Barranquilla 259 low vs 1 high in 15 years).
+
+## Next-day forecast (`src/ml/forecast.py`)
+
+- **Target:** daily GHI energy of day *t*, using only data up to the end of day *t − 1*.
+- **Features:** lags 1, 2, 3 and 7 days; 7- and 30-day rolling means; 7-day rolling
+  standard deviation; previous day's diffuse ratio, maximum temperature and sunshine
+  hours; day-of-year (sine/cosine); the location; and the training-period climatology
+  for that day of the year.
+- **Model:** scikit-learn `HistGradientBoostingRegressor`, 4 configurations compared on
+  the validation years and tracked in MLflow; the best is refit and registered.
+- **Split:** train 2011–2021, validation 2022–2023, test 2024 onwards. Tests check that
+  lags, rolling windows and the climatology never use the target day or later years.
+
+| Test period (2024–2026) | MAE (kWh/m²) | RMSE | Skill vs climatology |
+| --- | --- | --- | --- |
+| Persistence (tomorrow = today) | 0.817 | 1.099 | −15 % |
+| Climatology | 0.801 | 1.024 | 0 % |
+| Gradient boosting | **0.696** | **0.905** | **+22 %** |
+
+Skill ranges from +10 % (Cali) to +29 % (La Guajira). A 22 % gain over the seasonal
+mean is realistic for a forecast that sees no weather model output; operational
+day-ahead forecasts use numerical weather predictions, which this project does not.

@@ -1,0 +1,14 @@
+# Long-term mean daily GHI. Retrieved 2026-11-09.
+# nasa_power: NASA POWER climatology 2001-2025 (CERES SYN1deg).
+# global_solar_atlas: Global Solar Atlas 2.0, Solargis (CC BY 4.0).
+location_id,nasa_power_ghi_kwh_m2_day,global_solar_atlas_ghi_kwh_m2_day
+la_guajira,5.509,5.701
+barranquilla,5.409,5.679
+cartagena,5.309,5.404
+santa_marta,5.713,5.853
+bucaramanga,5.076,5.236
+medellin,4.927,5.357
+bogota,4.639,4.749
+cali,4.213,5.108
+cucuta,4.3,5.252
+villavicencio,4.314,4.782

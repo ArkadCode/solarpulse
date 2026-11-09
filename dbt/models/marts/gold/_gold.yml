@@ -86,3 +86,20 @@ models:
         data_tests:
           - accepted_range:
               arguments: {min_value: 0, max_value: 1}
+
+  - name: daily_radiation_anomalies
+    description: >
+      Daily GHI energy against its seasonal climatology (same location, ±7 days of the
+      year, all years). Days 2 standard deviations below are 'unusually_low'.
+    data_tests:
+      - unique_combination:
+          arguments:
+            combination_of_columns: [location_id, date_local]
+    columns:
+      - name: z_score
+        description: (daily energy - climatological mean) / climatological standard deviation.
+      - name: anomaly_class
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [unusually_low, normal, unusually_high]

@@ -32,9 +32,9 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt -r dashboard/requirements.txt
       - name: Lint
-        run: ruff check src tests airflow
+        run: ruff check src tests airflow benchmarks dashboard
       - name: Unit and end-to-end tests
         run: pytest -q
 
@@ -54,6 +54,10 @@ jobs:
         run: python -m src.transform.dbt_runner build
       - name: Great Expectations report
         run: python -m src.quality.run_quality
+      - name: SRS sensitivity and external validation
+        run: |
+          python -m src.scoring.sensitivity
+          python -m src.scoring.validation
       - name: Publish layers to the lake
         run: python -m src.lake.publish
       - name: dbt docs (lineage)
@@ -89,3 +93,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker compose config --quiet
+      - name: Build images
+        run: docker compose build

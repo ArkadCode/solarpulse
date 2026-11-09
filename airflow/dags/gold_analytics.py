@@ -1,7 +1,8 @@
 """Silver -> Gold, data quality report and publishing to the lake.
 
 Runs whenever Silver is updated: dbt builds the Gold models and the SRS, Great
-Expectations validates Silver and Gold, and the layers are published as Parquet.
+Expectations validates Silver and Gold, the SRS is checked (weight sensitivity and
+external validation), and the layers are published as Parquet.
 """
 
 from __future__ import annotations
@@ -56,4 +57,18 @@ with DAG(
         outlets=[GOLD],
     )
 
-    build_gold >> quality_report >> publish
+    sensitivity = BashOperator(
+        task_id="srs_sensitivity",
+        bash_command=module_command("src.scoring.sensitivity"),
+        cwd=PROJECT_DIR,
+        pool=WAREHOUSE_POOL,
+    )
+
+    validation = BashOperator(
+        task_id="srs_external_validation",
+        bash_command=module_command("src.scoring.validation"),
+        cwd=PROJECT_DIR,
+        pool=WAREHOUSE_POOL,
+    )
+
+    build_gold >> quality_report >> [sensitivity, validation] >> publish
