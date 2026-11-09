@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from src.common.config import PROJECT_ROOT, load_settings
+from src.common.run_metrics import tracked_run
 
 DBT_DIR = PROJECT_ROOT / "dbt"
 
@@ -47,7 +48,25 @@ def dbt_env(settings: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def run_dbt(args: list[str], settings: dict[str, Any] | None = None) -> bool:
+def summarize(result: Any) -> dict[str, Any]:
+    """Counts per status and timing per model from a dbt build/run/test result."""
+    statuses: dict[str, int] = {}
+    model_seconds: dict[str, float] = {}
+    for r in getattr(result, "results", None) or []:
+        kind = r.node.resource_type
+        key = f"{kind}_{r.status}"
+        statuses[key] = statuses.get(key, 0) + 1
+        if kind == "model":
+            model_seconds[r.node.name] = round(r.execution_time, 2)
+    return {"node_status": statuses, "model_seconds": model_seconds}
+
+
+def run_dbt(
+    args: list[str],
+    settings: dict[str, Any] | None = None,
+    summary: dict[str, Any] | None = None,
+) -> bool:
+    """Runs dbt in-process. When `summary` is given it is filled with run statistics."""
     from dbt.cli.main import dbtRunner
 
     settings = settings or load_settings()
@@ -58,6 +77,8 @@ def run_dbt(args: list[str], settings: dict[str, Any] | None = None) -> bool:
     try:
         full_args = [*args, "--project-dir", str(DBT_DIR), "--profiles-dir", str(DBT_DIR)]
         result = dbtRunner().invoke(full_args)
+        if summary is not None:
+            summary.update(summarize(result.result))
         return bool(result.success)
     finally:
         _close_duckdb_environment()
@@ -80,7 +101,12 @@ def _close_duckdb_environment() -> None:
 
 
 def main() -> int:
-    return 0 if run_dbt(sys.argv[1:]) else 1
+    args = sys.argv[1:]
+    settings = load_settings()
+    with tracked_run(f"dbt_{args[0] if args else 'none'}", settings) as run:
+        ok = run_dbt(args, settings, summary=run)
+        run.update(dbt_args=" ".join(args), _failed=not ok)
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

@@ -2,11 +2,13 @@ PYTHON ?= python3.10
 VENV   := .venv
 BIN    := $(VENV)/bin
 
-.PHONY: help install up down test lint plan ingest ingest-local sample inspect transform quality publish pipeline docs clean
+.PHONY: help install up down trigger backfill test lint plan ingest ingest-local sample inspect transform quality publish pipeline docs clean
 
 help:
 	@echo "install       create the virtualenv and install dependencies"
-	@echo "up / down     start or stop the object store (console: http://localhost:9001)"
+	@echo "up / down     start or stop everything: lake, Airflow (http://localhost:8080)"
+	@echo "trigger       run the Airflow pipeline now (ingestion -> silver -> gold)"
+	@echo "backfill      reprocess years in Airflow, e.g. make backfill YEARS=\"2015 2016\""
 	@echo "plan          show which partitions would be fetched, without fetching"
 	@echo "ingest        incremental ingestion into Bronze on the object store"
 	@echo "ingest-local  ingestion into data/lake without Docker"
@@ -28,10 +30,18 @@ $(BIN)/activate: requirements.txt
 install: $(BIN)/activate
 
 up:
-	docker compose up -d
+	@test -f .env || cp .env.example .env
+	docker compose up -d --build --wait
 
 down:
 	docker compose down
+
+trigger:
+	docker compose exec airflow-scheduler airflow dags trigger weather_ingestion
+
+backfill:
+	docker compose exec airflow-scheduler airflow dags trigger weather_ingestion \
+		--conf '{"backfill_years": [$(shell echo $(YEARS) | tr ' ' ',')]}'
 
 plan: install
 	$(BIN)/python -m src.ingestion.incremental_loader --dry-run
@@ -68,7 +78,7 @@ test: install
 	$(BIN)/pytest -q
 
 lint: install
-	$(BIN)/ruff check src tests
+	$(BIN)/ruff check src tests airflow
 
 clean:
 	rm -rf $(VENV) .pytest_cache .ruff_cache data reports dbt/target dbt/logs

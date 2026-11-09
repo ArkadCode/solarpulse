@@ -23,10 +23,10 @@ os.environ.setdefault("GX_ANALYTICS_ENABLED", "False")
 import duckdb  # noqa: E402
 import great_expectations as gx  # noqa: E402
 import pandas as pd  # noqa: E402
-import pyarrow as pa  # noqa: E402
 
 from src.common.config import PROJECT_ROOT, load_settings  # noqa: E402
 from src.common.logging import get_logger  # noqa: E402
+from src.common.run_metrics import tracked_run  # noqa: E402
 from src.common.storage import Lake  # noqa: E402
 from src.quality.expectations import SUITES, build_suite  # noqa: E402
 from src.transform.dbt_runner import warehouse_path  # noqa: E402
@@ -176,15 +176,21 @@ def write_report(report: dict[str, Any], settings: dict[str, Any], run_at: datet
     # Keep the history in the lake: one JSON per run.
     lake = Lake.from_settings(settings)
     stamp = run_at.strftime("%Y%m%dT%H%M%SZ")
-    path = lake.path(f"quality/reports/{stamp}.json")
-    lake.fs.create_dir(path.rsplit("/", 1)[0], recursive=True)
-    with lake.fs.open_output_stream(path) as out:
-        out.write(pa.py_buffer(body_json.encode()))
+    path = lake.write_text(f"quality/reports/{stamp}.json", body_json)
     log.info("report_written", extra={"local": str(report_dir), "lake": path})
 
 
 def main() -> int:
-    report = run_quality()
+    with tracked_run("quality") as run:
+        report = run_quality()
+        run.update(
+            success=report["success"],
+            failed_expectations=sum(
+                not e["success"] for s in report["suites"] for e in s["expectations"]
+            ),
+            rows_quarantined_by_rule={q["rule"]: q["rows"] for q in report["quarantine"]},
+            _failed=not report["success"],
+        )
     return 0 if report["success"] else 1
 
 

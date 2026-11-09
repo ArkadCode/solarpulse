@@ -1,8 +1,42 @@
-# Phase 1: object storage only. Airflow and Streamlit are added in phases 3 and 5.
+# The whole environment with one command: `make up`.
+#
+#   object-store   S3-compatible lake (RustFS)        http://localhost:9001
+#   airflow-*      Airflow 3 with LocalExecutor        http://localhost:8080
+#   postgres       Airflow metadata database
 #
 # RustFS is an open-source (Apache-2.0), S3-compatible object store and a drop-in
 # replacement for MinIO, which no longer publishes container images.
-# The pipeline only speaks S3, so any S3-compatible server works here.
+
+x-airflow: &airflow
+  build:
+    context: .
+    dockerfile: docker/airflow/Dockerfile
+  image: solarpulse-airflow:3.3.2
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/solarpulse/airflow/dags
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"  # local only: no login
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-solarpulse-local-jwt-secret}
+    AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL: "30"
+    # Pipeline settings: the same variables the code reads on the host.
+    SOLARPULSE_PROJECT_DIR: /opt/solarpulse
+    SOLARPULSE_STORAGE_BACKEND: s3
+    S3_ENDPOINT: object-store:9000
+    S3_ACCESS_KEY: ${S3_ACCESS_KEY:-solarpulse}
+    S3_SECRET_KEY: ${S3_SECRET_KEY:-solarpulse-secret}
+    ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+  volumes:
+    - .:/opt/solarpulse
+  depends_on: &airflow-depends
+    postgres:
+      condition: service_healthy
+    object-store:
+      condition: service_started
+
 services:
   object-store:
     image: rustfs/rustfs:1.0.3
@@ -17,5 +51,63 @@ services:
       - lake_data:/data
     restart: unless-stopped
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate &&
+        airflow pools set duckdb_warehouse 1 "Single writer for the DuckDB warehouse"
+    restart: "no"
+
+  airflow-apiserver:
+    <<: *airflow
+    command: api-server
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/v2/monitor/health"]
+      interval: 15s
+      retries: 10
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  airflow-scheduler:
+    <<: *airflow
+    command: scheduler
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  airflow-dag-processor:
+    <<: *airflow
+    command: dag-processor
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   lake_data:
+  airflow_db:

@@ -19,6 +19,7 @@ from typing import Any, Protocol
 
 from src.common.config import Location, load_locations, load_settings
 from src.common.logging import get_logger
+from src.common.run_metrics import tracked_run
 from src.common.storage import Lake
 from src.ingestion.api_client import OpenMeteoClient
 from src.ingestion.extractor import (
@@ -156,9 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--start-date", type=date.fromisoformat, help="History start date")
     parser.add_argument("--end-date", type=date.fromisoformat, help="End date (default: today-lag)")
     parser.add_argument("--dry-run", action="store_true", help="Only print the plan")
-    parser.add_argument(
-        "--synthetic", action="store_true", help="Use synthetic data, no API calls"
-    )
+    parser.add_argument("--synthetic", action="store_true", help="Use synthetic data, no API calls")
     args = parser.parse_args(argv)
 
     settings = load_settings()
@@ -178,15 +177,25 @@ def main(argv: list[str] | None = None) -> int:
         # Reference data always lists every configured location, not just this run's subset.
         lake.write_parquet(f"{LOCATIONS_TABLE}/data.parquet", locations_to_table(load_locations()))
 
-    metrics = run_ingestion(
-        lake=lake,
-        client=client,
-        locations=locations,
-        history_start=history_start,
-        end_date=end_date,
-        backfill_years=set(args.backfill),
-        dry_run=args.dry_run,
-    )
+    with tracked_run("ingestion", settings) as run:
+        metrics = run_ingestion(
+            lake=lake,
+            client=client,
+            locations=locations,
+            history_start=history_start,
+            end_date=end_date,
+            backfill_years=set(args.backfill),
+            dry_run=args.dry_run,
+        )
+        run.update(
+            partitions_planned=metrics.planned,
+            partitions_written=metrics.written,
+            partitions_failed=metrics.failed,
+            rows_written=metrics.rows_written,
+            backfill_years=sorted(args.backfill),
+            dry_run=args.dry_run,
+            _failed=metrics.failed > 0,
+        )
     return 1 if metrics.failed else 0
 
 

@@ -61,6 +61,13 @@ class Lake:
         self.fs.move(tmp, final)
         return final
 
+    def write_text(self, relative: str, text: str) -> str:
+        path = self.path(relative)
+        self.fs.create_dir(path.rsplit("/", 1)[0], recursive=True)
+        with self.fs.open_output_stream(path) as out:
+            out.write(pa.py_buffer(text.encode("utf-8")))
+        return path
+
     def read_schema_metadata(self, relative: str) -> dict[str, str]:
         """Read only the Parquet footer (the data itself is not downloaded)."""
         schema = pq.read_schema(self.path(relative), filesystem=self.fs)

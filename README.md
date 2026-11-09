@@ -18,8 +18,8 @@ optional final phase.
 | --- | --- | --- |
 | 1 | Ingestion and Bronze | Done |
 | 2 | Silver and Gold with DuckDB + dbt, data quality, first SRS | Done |
-| 3 | Airflow, CI/CD, single-command environment | Next |
-| 4 | Scale to a national grid, PySpark vs DuckDB benchmark | Planned |
+| 3 | Airflow, CI/CD, single-command environment | Done |
+| 4 | Scale to a national grid, PySpark vs DuckDB benchmark | Next |
 | 5 | ML with MLflow, SRS validation, dashboard, docs | Planned |
 | 6 | Databricks Free Edition port (optional) | Planned |
 
@@ -28,8 +28,13 @@ optional final phase.
 Requirements: Docker and Python 3.10+.
 
 ```bash
-cp .env.example .env
-make up        # starts the S3-compatible object store (console: http://localhost:9001)
+make up        # builds and starts everything: lake (http://localhost:9001), Airflow (http://localhost:8080)
+make trigger   # runs the pipeline in Airflow: ingestion -> silver -> gold
+```
+
+Airflow runs the pipeline daily. To run the steps by hand on the host instead:
+
+```bash
 make plan      # shows which partitions are missing, without downloading
 make ingest    # downloads only the missing partitions into Bronze
 make transform # dbt build: Silver and Gold plus 42 data tests
@@ -78,6 +83,7 @@ Docs: [architecture](docs/architecture.md) · [data dictionary](docs/data_dictio
 ### Backfills and options
 
 ```bash
+make backfill YEARS="2015 2016"   # in Airflow
 .venv/bin/python -m src.ingestion.incremental_loader --backfill 2015 2016
 .venv/bin/python -m src.ingestion.incremental_loader --locations bogota cali
 .venv/bin/python -m src.ingestion.incremental_loader --all-locations
@@ -118,6 +124,40 @@ extraction timestamp and the source file path. This is the start of the lineage 
 **Failure handling.** A failed partition is logged and skipped; the others continue, and
 the next run picks it up again. The process exits with a non-zero code if anything
 failed, so an orchestrator can alert on it. Logs are structured JSON, one event per line.
+
+## Phase 3: orchestration, CI/CD and observability
+
+**Airflow 3** runs three DAGs chained by data assets, so each layer runs as soon as the
+one before it changes:
+
+```
+weather_ingestion (@daily) ──Bronze asset──► silver_transformation ──Silver asset──► gold_analytics
+  ingest_to_bronze                             dbt_build_silver                        dbt_build_gold
+  params: backfill_years, locations                                                    → great_expectations_report
+                                                                                       → publish_to_lake
+```
+
+- **Retries** with exponential backoff on every task, and an **alert callback** that
+  logs a structured event and posts to `ALERT_WEBHOOK_URL` (Slack-compatible) if set.
+- **Backfills** are a trigger parameter validated by a strict schema, because the values
+  end up in a shell command.
+- **One writer at a time:** DuckDB allows a single writer, so every task that touches the
+  warehouse shares a one-slot Airflow pool.
+- **Isolated dependencies:** the image installs the pipeline in its own virtualenv;
+  Airflow only runs `python -m src...` commands and never imports dbt or pandas.
+
+**Docker Compose** starts the lake, Postgres and Airflow (API server, scheduler, DAG
+processor) with `make up`.
+
+**GitHub Actions** ([ci.yml](.github/workflows/ci.yml)) runs on every pull request:
+ruff, pytest on Python 3.10 and 3.12, a full `dbt build` + quality report + publish on
+synthetic data (the report and dbt docs are uploaded as artifacts), an import check of
+every DAG against Airflow 3.3.2, and `docker compose config`.
+
+**Observability:** every step records status, duration, peak memory and its own counts
+(partitions and rows written, dbt node statuses and per-model seconds, failed
+expectations, rows quarantined per rule) in the lake under
+`observability/runs/step=<step>/`, keyed by the Airflow run ID.
 
 ## Data source
 

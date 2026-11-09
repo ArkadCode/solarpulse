@@ -17,6 +17,7 @@ import pyarrow.dataset as ds
 
 from src.common.config import load_settings
 from src.common.logging import get_logger
+from src.common.run_metrics import tracked_run
 from src.common.storage import Lake
 from src.transform.dbt_runner import warehouse_path
 
@@ -88,7 +89,9 @@ def publish_all(settings: dict | None = None) -> dict[str, int]:
 
 
 def main() -> int:
-    publish_all()
+    with tracked_run("publish") as run:
+        published = publish_all()
+        run.update(tables=len(published), rows_published=published)
     return 0
 
 
