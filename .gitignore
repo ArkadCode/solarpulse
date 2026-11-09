@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.env
+data/
+*.duckdb
+*.duckdb.wal
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+mlruns/
+.DS_Store
+.vscode/
+.idea/

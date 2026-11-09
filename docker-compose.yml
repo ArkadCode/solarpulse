@@ -1,0 +1,21 @@
+# Phase 1: object storage only. Airflow and Streamlit are added in phases 3 and 5.
+#
+# RustFS is an open-source (Apache-2.0), S3-compatible object store and a drop-in
+# replacement for MinIO, which no longer publishes container images.
+# The pipeline only speaks S3, so any S3-compatible server works here.
+services:
+  object-store:
+    image: rustfs/rustfs:1.0.3
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:-solarpulse}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-solarpulse-secret}
+      RUSTFS_CONSOLE_ENABLE: "true"
+    volumes:
+      - lake_data:/data
+    restart: unless-stopped
+
+volumes:
+  lake_data:

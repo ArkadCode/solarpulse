@@ -1,0 +1,45 @@
+api:
+  base_url: https://archive-api.open-meteo.com/v1/archive
+  # A single weather model for every location keeps them comparable.
+  # era5 (~25 km) covers the full history consistently. Alternatives:
+  # era5_land (~9 km), ecmwf_ifs (~9 km, 2017 onwards only), best_match (model blend).
+  model: era5
+  timezone: GMT
+  hourly_variables:
+    - temperature_2m            # °C
+    - shortwave_radiation       # GHI, W/m²
+    - direct_radiation          # direct horizontal radiation, W/m²
+    - diffuse_radiation         # DHI, W/m²
+    - direct_normal_irradiance  # DNI, W/m²
+  timeout_seconds: 60
+  # Minimum pause between requests to stay within the free-tier limits.
+  min_seconds_between_requests: 2.0
+
+retry:
+  max_attempts: 5
+  base_delay_seconds: 2.0
+  max_delay_seconds: 60.0
+
+ingestion:
+  history_start_date: "2011-01-01"
+  # The historical archive is published with a delay of a few days.
+  end_date_lag_days: 7
+  # Phase 1: 5 cities. Leave the list empty to use every location in locations.yml.
+  active_locations:
+    - la_guajira
+    - barranquilla
+    - medellin
+    - bogota
+    - cali
+
+storage:
+  # "s3" uses the local object store from docker compose. "local" writes to local_root, handy without Docker.
+  backend: s3
+  bucket: solarpulse
+  local_root: data/lake
+  s3_endpoint: localhost:9000
+  s3_scheme: http
+  s3_region: us-east-1
+
+layers:
+  bronze_table: bronze/raw_openmeteo
