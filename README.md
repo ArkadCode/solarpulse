@@ -1,5 +1,6 @@
 # SolarPulse
 
+[![CI](https://github.com/ArkadCode/solarpulse/actions/workflows/ci.yml/badge.svg)](https://github.com/ArkadCode/solarpulse/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.12-3776AB)
 ![dbt](https://img.shields.io/badge/dbt--core-1.11-FF694B)
 ![DuckDB](https://img.shields.io/badge/DuckDB-1.5-FFF000)
@@ -20,7 +21,7 @@ in MLflow and a dashboard. Everything runs locally on free, open-source tools.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/srs-ranking-dark.svg">
-  <img alt="Solar Reliability Score ranking: Barranquilla 80.0, Riohacha 79.9, Santa Marta 73.7, Cartagena 70.2, Cúcuta 66.4, Medellín 52.6, Bogotá 46.8, Villavicencio 33.8, Bucaramanga 33.6, Cali 23.2, with a map of Colombia" src="docs/images/srs-ranking-light.svg">
+  <img alt="Solar Reliability Score ranking: Barranquilla 80.0, Riohacha 79.9, Santa Marta 73.7, Cartagena 70.2, Cúcuta 66.4, Medellín 52.6, Bogotá 46.8, Villavicencio 33.8, Bucaramanga 33.6, Cali 23.2" src="docs/images/srs-ranking-light.svg">
 </picture>
 
 ## City Ranking
@@ -111,7 +112,7 @@ lineage) and [docs/data_dictionary.md](docs/data_dictionary.md) (every table and
 ### Run everything in Docker
 
 ```bash
-git clone <repository-url> solarpulse && cd solarpulse
+git clone https://github.com/ArkadCode/solarpulse.git && cd solarpulse
 make up        # creates .env from .env.example, builds images, starts all services
 make trigger   # runs the pipeline in Airflow now (it also runs daily)
 ```
@@ -177,7 +178,7 @@ no account or API key is needed.
 2. **Start the environment and run the pipeline:**
 
    ```bash
-   git clone <repository-url> solarpulse && cd solarpulse
+   git clone https://github.com/ArkadCode/solarpulse.git && cd solarpulse
    make up
    make trigger
    ```

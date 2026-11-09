@@ -1,7 +1,7 @@
 """Renders the README figures as SVG, in light and dark versions.
 
-- docs/images/srs-ranking-{light,dark}.svg: SRS ranking bars next to a map of Colombia,
-  built from gold.location_reliability_score.
+- docs/images/srs-ranking-{light,dark}.svg: SRS ranking bars, built from
+  gold.location_reliability_score.
 - docs/images/architecture-{light,dark}.svg: the pipeline diagram.
 
 Hand-written SVG keeps the files small, crisp on GitHub and free of plotting
@@ -19,7 +19,6 @@ from html import escape
 import duckdb
 
 from src.common.config import PROJECT_ROOT, load_settings
-from src.ingestion.grid import BBOX, COLOMBIA_OUTLINE
 from src.transform.dbt_runner import warehouse_path
 
 OUT_DIR = PROJECT_ROOT / "docs" / "images"
@@ -79,19 +78,6 @@ def svg(width: int, height: int, body: list[str], t: Theme, title: str) -> str:
 
 # --- ranking figure -----------------------------------------------------------------
 
-# Label placement on the map: (dx, dy, anchor). The Caribbean cities sit close together.
-MAP_LABELS = {
-    "barranquilla": (-14, 3, "end"),
-    "la_guajira": (12, -9, "start"),
-    "santa_marta": (-6, -15, "end"),
-    "cartagena": (-14, 12, "end"),
-    "cucuta": (11, 4, "start"),
-    "medellin": (-11, 4, "end"),
-    "bogota": (-11, 4, "end"),
-    "villavicencio": (11, 8, "start"),
-    "bucaramanga": (11, 6, "start"),
-    "cali": (-11, 4, "end"),
-}
 SHORT_NAMES = {"la_guajira": "Riohacha"}
 
 
@@ -101,10 +87,9 @@ def load_ranking() -> tuple[list[dict], str]:
         rows = con.execute(
             """
             select s.location_id, s.location_name, s.region, s.srs, s.srs_rank,
-                   s.mean_radiation_rank, s.mean_daily_ghi_kwh_m2, l.latitude, l.longitude,
+                   s.mean_radiation_rank, s.mean_daily_ghi_kwh_m2,
                    s.first_date, s.last_date
             from gold.location_reliability_score s
-            join silver.dim_location l using (location_id)
             where s.period = 'all'
             order by s.srs_rank
             """
@@ -116,7 +101,7 @@ def load_ranking() -> tuple[list[dict], str]:
 
 
 def ranking_svg(rows: list[dict], period: str, t: Theme) -> str:
-    width, height = 1000, 600
+    width, height = 700, 600
     body: list[str] = []
     body.append(text(32, 46, "Solar Reliability Score", t, 24, weight=700))
     body.append(text(
@@ -156,30 +141,6 @@ def ranking_svg(rows: list[dict], period: str, t: Theme) -> str:
             arrow = f"▲ {moved}" if moved > 0 else f"▼ {-moved}"
             body.append(text(bar_x + bar_max + 58, cy + 5, arrow, t, 12, t.text_2, 600))
 
-    # map
-    mx, my, mw = 660, 110, 300
-    lon0, lon1 = BBOX["min_lon"], BBOX["max_lon"]
-    lat0, lat1 = BBOX["min_lat"], BBOX["max_lat"]
-    scale = mw / (lon1 - lon0)
-
-    def project(lon: float, lat: float) -> tuple[float, float]:
-        return mx + (lon - lon0) * scale, my + (lat1 - lat) * scale
-
-    outline = " ".join(f"{x:.1f},{y:.1f}" for x, y in (project(*p) for p in COLOMBIA_OUTLINE))
-    body.append(f'<polygon points="{outline}" fill="{t.surface_2}" stroke="{t.border}" '
-                f'stroke-width="1.5" stroke-linejoin="round"/>')
-    body.append(text(mx + mw / 2 + 40, my + (lat1 - lat0) * scale - 6,
-                     "Mainland Colombia (simplified outline)", t, 11, t.muted, anchor="middle"))
-    for r in sorted(rows, key=lambda r: -r["srs_rank"]):  # best city drawn on top
-        px, py = project(r["longitude"], r["latitude"])
-        radius = 4 + 6 * r["srs"] / 100
-        body.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{radius:.1f}" '
-                    f'fill="{t.regions[r["region"]]}" stroke="{t.surface}" stroke-width="2"/>')
-        dx, dy, anchor = MAP_LABELS.get(r["location_id"], (11, 4, "start"))
-        name = SHORT_NAMES.get(r["location_id"], r["location_name"])
-        body.append(text(px + dx, py + dy, f"{int(r['srs_rank'])} {name}", t, 11, t.text_2,
-                         500, anchor))
-    body.append(text(mx, height - 22, "Dot size grows with the score.", t, 11, t.muted))
     return svg(width, height, body, t, "Solar Reliability Score ranking of 10 Colombian cities")
 
 
